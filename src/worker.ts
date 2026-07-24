@@ -3,42 +3,29 @@
  *
  * Experimental. Nothing here is deployed. See README.md.
  *
- * The routing shape encodes the central design constraint: every tab is assembled
- * from an independent public source, and any one of them being unavailable must
- * degrade that tab rather than fail the page.
+ * Central constraint: **any public GitHub repo gets a page, on first hit, with
+ * no registration.** Everything is detected live. mise-versions is an enrichment
+ * source, never a gate — its registry is deliberately curated, and gating pages
+ * on it would turn registry submissions into a queue of people who just want a
+ * usage.sh page.
+ *
+ * Every tab is independently optional. A repo with none of the signals still
+ * gets a page built from public GitHub metadata.
  */
 
+import { takNotesSha } from "./git";
+
 export interface Env {
-  /** Response cache. Keyed by upstream ETag where one is available. */
+  /** Response and detection cache. */
   CACHE: KVNamespace;
   /** Static assets (the SPA). */
   ASSETS: Fetcher;
-  /** Optional; raises the GitHub API rate limit for contributor lookups. */
+  /** Optional; raises the GitHub API rate limit. */
   GITHUB_TOKEN?: string;
 }
 
-/** Upstream that already maps ~1000 CLI tools to their GitHub repos. */
 const MISE_VERSIONS = "https://mise-versions.jdx.dev";
-
-/**
- * Cache policy. Short max-age keeps a busy tool's page fresh; the long
- * stale-while-revalidate window means readers effectively never wait on an
- * upstream fetch.
- */
 const CACHE_CONTROL = "public, max-age=300, stale-while-revalidate=3600";
-
-interface Tool {
-  name: string;
-  latest_version: string;
-  latest_stable_version?: string;
-  version_count: number;
-  last_updated: string;
-  description?: string;
-  /** "owner/repo", when mise knows it. */
-  github?: string;
-  repo_url?: string;
-  backends?: string[];
-}
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -50,54 +37,138 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
+function gh(env: Env): Record<string, string> {
+  const h: Record<string, string> = {
+    "user-agent": "usage.sh",
+    accept: "application/vnd.github+json",
+  };
+  if (env.GITHUB_TOKEN) h.authorization = `Bearer ${env.GITHUB_TOKEN}`;
+  return h;
+}
+
+/** Repo metadata. Also our existence check — null means 404 the page. */
+async function repoMeta(owner: string, repo: string, env: Env) {
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+    headers: gh(env),
+    cf: { cacheTtl: 600, cacheEverything: true },
+  });
+  if (!res.ok) return null;
+  const r = (await res.json()) as Record<string, unknown>;
+  return {
+    full_name: r.full_name,
+    description: r.description,
+    stars: r.stargazers_count,
+    language: r.language,
+    topics: r.topics,
+    default_branch: r.default_branch,
+    pushed_at: r.pushed_at,
+    archived: r.archived,
+  };
+}
+
 /**
- * Fetch the tool index and find the entry for a GitHub repo.
+ * Detect a Usage spec: `<name>.usage.kdl` at the repo root.
  *
- * Reverse lookup rather than by tool name: the canonical identity of a CLI here
- * is its repository, because that is the one key every data source agrees on.
+ * Only the root is checked. A recursive search would be a tree walk on every
+ * cold hit, and the convention is a root-level file.
  */
-async function toolForRepo(owner: string, repo: string): Promise<Tool | null> {
+async function usageSpec(owner: string, repo: string, env: Env) {
+  const res = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/contents/`,
+    { headers: gh(env), cf: { cacheTtl: 600, cacheEverything: true } },
+  );
+  if (!res.ok) return null;
+  const entries = (await res.json()) as Array<{
+    name: string;
+    type: string;
+    download_url: string | null;
+  }>;
+  const spec = entries.find(
+    (e) => e.type === "file" && e.name.endsWith(".usage.kdl"),
+  );
+  if (!spec?.download_url) return null;
+
+  const body = await fetch(spec.download_url, {
+    cf: { cacheTtl: 600, cacheEverything: true },
+  });
+  if (!body.ok) return null;
+  // TODO: parse KDL into a command tree. Raw for now.
+  return { file: spec.name, raw: await body.text() };
+}
+
+/**
+ * Release history.
+ *
+ * Prefers mise-versions: it is pre-aggregated, already cached, and consumes
+ * nobody's GitHub rate limit. Falls back to the GitHub releases API so that
+ * repos outside mise's curated registry — which is most of them — still get
+ * the tab.
+ */
+async function versions(
+  owner: string,
+  repo: string,
+  toolName: string | null,
+  env: Env,
+) {
+  if (toolName) {
+    const res = await fetch(
+      `${MISE_VERSIONS}/${encodeURIComponent(toolName)}.toml`,
+      { cf: { cacheTtl: 3600, cacheEverything: true } },
+    );
+    if (res.ok) {
+      return { source: "mise-versions", format: "toml", raw: await res.text() };
+    }
+  }
+
+  const res = await fetch(
+    `https://api.github.com/repos/${owner}/${repo}/releases?per_page=100`,
+    { headers: gh(env), cf: { cacheTtl: 3600, cacheEverything: true } },
+  );
+  if (!res.ok) return null;
+  const rels = (await res.json()) as Array<{
+    tag_name: string;
+    published_at: string;
+    html_url: string;
+    prerelease: boolean;
+  }>;
+  return {
+    source: "github",
+    releases: rels.map(({ tag_name, published_at, html_url, prerelease }) => ({
+      tag_name,
+      published_at,
+      html_url,
+      prerelease,
+    })),
+  };
+}
+
+/**
+ * Optional enrichment from mise's registry: backends, aqua links, aggregated
+ * version counts. Absence is the common case and means nothing is missing.
+ */
+async function miseEntry(owner: string, repo: string) {
   const res = await fetch(`${MISE_VERSIONS}/tools.json`, {
     cf: { cacheTtl: 3600, cacheEverything: true },
   });
   if (!res.ok) return null;
-  const { tools } = (await res.json()) as { tools: Tool[] };
+  const { tools } = (await res.json()) as {
+    tools: Array<{ name: string; github?: string; [k: string]: unknown }>;
+  };
   const slug = `${owner}/${repo}`.toLowerCase();
   return tools.find((t) => t.github?.toLowerCase() === slug) ?? null;
 }
 
 /**
- * Release history for a tool, straight from mise-versions.
+ * Top contributors.
  *
- * Deliberately not the GitHub releases API: this upstream is already aggregated,
- * already cached, and does not consume anyone's rate limit.
- *
- * TODO: parse the TOML rather than handing it back raw.
- */
-async function releases(toolName: string): Promise<string | null> {
-  const res = await fetch(`${MISE_VERSIONS}/${encodeURIComponent(toolName)}.toml`, {
-    cf: { cacheTtl: 3600, cacheEverything: true },
-  });
-  return res.ok ? await res.text() : null;
-}
-
-/**
- * Top contributors for a repo.
- *
- * TODO: this is the naive call. It is paginated, rate-limited, and says nothing
- * about *recent* activity — a contributor who left three years ago still ranks
- * first. Real implementation should weight by recency.
+ * TODO: GitHub ranks by all-time commit count, so someone who left three years
+ * ago outranks whoever is doing the work now. Needs recency weighting before
+ * this is shown as "top contributor" to anybody.
  */
 async function contributors(owner: string, repo: string, env: Env) {
-  const headers: Record<string, string> = {
-    "user-agent": "usage.sh",
-    accept: "application/vnd.github+json",
-  };
-  if (env.GITHUB_TOKEN) headers.authorization = `Bearer ${env.GITHUB_TOKEN}`;
-
   const res = await fetch(
     `https://api.github.com/repos/${owner}/${repo}/contributors?per_page=20`,
-    { headers, cf: { cacheTtl: 3600, cacheEverything: true } },
+    { headers: gh(env), cf: { cacheTtl: 3600, cacheEverything: true } },
   );
   if (!res.ok) return null;
   const list = (await res.json()) as Array<{
@@ -113,42 +184,57 @@ async function contributors(owner: string, repo: string, env: Env) {
 }
 
 /**
- * Performance history from the project's own `refs/notes/tak`.
+ * Performance history from `refs/notes/tak`.
  *
- * NOT IMPLEMENTED. A Worker cannot shell out to git, and the honest options are:
- *
- *   1. A small origin service that speaks real git, behind this cache. One
- *      `git fetch --depth 1` of the single notes ref returns everything —
- *      measured at 36ms / 124K for 100 commits, with no repo clone.
- *   2. Ingest instead: `tak` pushes results here from CI, authenticated with
- *      GitHub OIDC so there is still no account and no shared secret.
- *
- * (2) is less work given the existing infrastructure; (1) is what makes the page
- * resolve for repos that never opted in. Probably both, with (1) as the fallback.
+ * Detection is done and cheap — see ./git.ts. Reading the note *contents* needs
+ * a packfile fetch and delta resolution, which is the remaining work. Until then
+ * we report presence and the ref SHA, which is enough to decide whether the tab
+ * exists and doubles as its cache key.
  */
-async function performance(_owner: string, _repo: string) {
-  return null;
+async function performance(owner: string, repo: string) {
+  const sha = await takNotesSha(owner, repo);
+  if (!sha) return null;
+  return {
+    present: true,
+    notes_sha: sha,
+    records: null, // TODO: packfile fetch + parse
+  };
 }
 
-async function handleRepo(owner: string, repo: string, env: Env): Promise<Response> {
-  // Each source is independent: one failing must not take the page with it.
-  const [tool, people] = await Promise.all([
-    toolForRepo(owner, repo).catch(() => null),
+async function handleRepo(
+  owner: string,
+  repo: string,
+  env: Env,
+): Promise<Response> {
+  const meta = await repoMeta(owner, repo, env);
+  if (!meta) {
+    return json({ error: "repository not found or not public" }, 404);
+  }
+
+  // Independent sources, resolved concurrently. Any one failing degrades its own
+  // tab to null and never takes the page down.
+  const [spec, perf, mise, people] = await Promise.all([
+    usageSpec(owner, repo, env).catch(() => null),
+    performance(owner, repo).catch(() => null),
+    miseEntry(owner, repo).catch(() => null),
     contributors(owner, repo, env).catch(() => null),
   ]);
 
-  const [versions, perf] = await Promise.all([
-    tool ? releases(tool.name).catch(() => null) : Promise.resolve(null),
-    performance(owner, repo).catch(() => null),
-  ]);
+  const vers = await versions(
+    owner,
+    repo,
+    (mise?.name as string) ?? null,
+    env,
+  ).catch(() => null);
 
   return json({
     repo: `${owner}/${repo}`,
-    tool,
+    meta,
+    mise: mise ?? null,
     tabs: {
-      commands: null, // TODO: Usage spec
-      performance: perf, // TODO: refs/notes/tak
-      versions: versions ? { format: "toml", raw: versions } : null,
+      commands: spec,
+      performance: perf,
+      versions: vers,
       contributors: people,
     },
   });
@@ -157,13 +243,18 @@ async function handleRepo(owner: string, repo: string, env: Env): Promise<Respon
 /**
  * Everything one person has contributed across indexed CLIs.
  *
- * NOT IMPLEMENTED. Doing this by fanning out over ~1000 repos per request is not
- * viable; it needs a periodically-built inverted index (contributor -> tools),
- * refreshed on a schedule and stored in KV.
+ * NOT IMPLEMENTED. Fanning out over every known repo per request is not viable;
+ * this needs an inverted index (contributor -> tools) built on a schedule. The
+ * repo set to build it from is the union of the mise-versions seed and every
+ * repo anyone has ever loaded a page for.
  */
 async function handleUser(login: string): Promise<Response> {
   return json(
-    { login, tools: [], note: "not implemented — needs a prebuilt contributor index" },
+    {
+      login,
+      tools: [],
+      note: "not implemented — needs a prebuilt contributor index",
+    },
     501,
   );
 }
@@ -173,21 +264,12 @@ export default {
     const url = new URL(request.url);
     const parts = url.pathname.split("/").filter(Boolean);
 
-    if (parts[0] === "health") {
-      return json({ status: "ok" });
-    }
-
-    // /gh/:owner/:repo
+    if (parts[0] === "health") return json({ status: "ok" });
     if (parts[0] === "gh" && parts.length === 3) {
       return handleRepo(parts[1], parts[2], env);
     }
+    if (parts[0] === "u" && parts.length === 2) return handleUser(parts[1]);
 
-    // /u/:login
-    if (parts[0] === "u" && parts.length === 2) {
-      return handleUser(parts[1]);
-    }
-
-    // Everything else is the SPA.
     return env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;
