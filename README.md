@@ -27,12 +27,20 @@ A homepage for command-line tools. One URL per CLI, assembled from data that alr
 in public, with no cooperation required from the project:
 
 ```
-usage.sh/gh/astral-sh/uv
-  ├── Commands        ← Usage spec (github.com/jdx/usage), if the project has one
+usage.sh/gh/astral-sh/uv          a repo
+  ├── Commands        ← *.usage.kdl in the repo, if present
   ├── Performance     ← refs/notes/tak, if the project uses tak
-  ├── Versions        ← mise-versions.jdx.dev
-  └── Contributors    ← GitHub
+  ├── Versions        ← mise-versions, falling back to the forge
+  └── Contributors    ← the forge
+
+usage.sh/ghu/jdx                  a person, across every indexed CLI
 ```
+
+`gh` is a forge prefix, not an assumption. Each forge claims two path segments —
+`/gh/:owner/:repo` and `/ghu/:login` — kept separate because `/gh/user/:login` would be
+indistinguishable from `/gh/:owner/:repo`, both being three segments. Adding GitLab or
+Codeberg means implementing one adapter interface; **ref detection needs no work at all**,
+because it is git's own protocol rather than any forge's API.
 
 **Any public repo gets a page on first hit. There is no registration.** You visit the URL,
 everything is detected live, and whatever exists is displayed. A repo with a `*.usage.kdl`
@@ -41,7 +49,7 @@ still gets versions and contributors, because those come from public GitHub data
 
 **Each tab works without the others**, and no tab is a prerequisite for the page.
 
-### `usage.sh/u/:login`
+### `usage.sh/ghu/:login`
 
 Everything one person has contributed across every indexed CLI. Not a vanity page for its own
 sake — it is the answer to "who actually maintains the tools I depend on," and it is the only
@@ -108,7 +116,8 @@ only copy of anything. All the underlying data stays readable without it.
 
 Nothing works. This is a routing skeleton and a set of opinions.
 
-- [x] `/gh/:owner/:repo` resolves any public repo, no registration
+- [x] `/gh/:owner/:repo` + `/ghu/:login` routing over a forge registry
+- [x] any public repo resolves on first hit, no registration
 - [x] `refs/notes/tak` detection over plain HTTP (`src/git.ts`)
 - [x] `*.usage.kdl` detection at repo root
 - [x] release history — mise-versions with a GitHub releases fallback
@@ -116,7 +125,7 @@ Nothing works. This is a routing skeleton and a set of opinions.
 - [ ] any frontend whatsoever — this is JSON only
 - [ ] reading note contents (packfile fetch + delta resolution)
 - [ ] KDL parsing into a command tree
-- [ ] `/u/:login` — needs a prebuilt inverted index
+- [ ] `/ghu/:login` — needs a prebuilt inverted index
 - [ ] `/badge/:owner/:repo/:metric`
 - [ ] command palette
 

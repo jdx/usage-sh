@@ -54,14 +54,15 @@ export interface Ref {
 /**
  * List refs under `prefix` for a public repository.
  *
+ * Takes a clone URL rather than owner/repo because this is the one part of the
+ * stack that is genuinely forge-agnostic: smart HTTP v2 is git's protocol, not
+ * GitHub's, so this works unchanged against GitLab, Gitea, Codeberg and
+ * self-hosted remotes. Only the REST metadata calls need per-forge adapters.
+ *
  * Returns `[]` for a repo that does not exist, is private, or simply has no
  * matching refs — all three are the same outcome for our purposes: no tab.
  */
-export async function lsRefs(
-  owner: string,
-  repo: string,
-  prefix: string,
-): Promise<Ref[]> {
+export async function lsRefs(cloneUrl: string, prefix: string): Promise<Ref[]> {
   const body =
     pkt("command=ls-refs\n") +
     pkt("object-format=sha1\n") +
@@ -69,21 +70,18 @@ export async function lsRefs(
     pkt(`ref-prefix ${prefix}\n`) +
     FLUSH;
 
-  const res = await fetch(
-    `https://github.com/${owner}/${repo}.git/git-upload-pack`,
-    {
-      method: "POST",
-      headers: {
-        "git-protocol": "version=2",
-        "content-type": "application/x-git-upload-pack-request",
-        accept: "application/x-git-upload-pack-result",
-        "user-agent": "usage.sh",
-      },
-      body,
-      // Cheap and stable enough to cache; the SHA is the thing we key on.
-      cf: { cacheTtl: 300, cacheEverything: true },
+  const res = await fetch(`${cloneUrl}/git-upload-pack`, {
+    method: "POST",
+    headers: {
+      "git-protocol": "version=2",
+      "content-type": "application/x-git-upload-pack-request",
+      accept: "application/x-git-upload-pack-result",
+      "user-agent": "usage.sh",
     },
-  );
+    body,
+    // Cheap and stable enough to cache; the SHA is the thing we key on.
+    cf: { cacheTtl: 300, cacheEverything: true },
+  });
   if (!res.ok) return [];
 
   return parsePktLines(await res.text())
@@ -101,10 +99,7 @@ export async function lsRefs(
  * moves when a new measurement lands, so an unchanged SHA means an unchanged
  * dashboard.
  */
-export async function takNotesSha(
-  owner: string,
-  repo: string,
-): Promise<string | null> {
-  const refs = await lsRefs(owner, repo, "refs/notes/tak");
+export async function takNotesSha(cloneUrl: string): Promise<string | null> {
+  const refs = await lsRefs(cloneUrl, "refs/notes/tak");
   return refs.find((r) => r.name === "refs/notes/tak")?.sha ?? null;
 }
