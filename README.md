@@ -6,9 +6,8 @@
 > **This is a half-baked experiment. Do not use it. Do not depend on it. Do not link to it.**
 >
 > It is vibe-coded slop that exists so one person can find out whether an idea is any good.
-> Nothing here is deployed, nothing is stable, and every URL in this README is aspirational.
-> It may be renamed, rewritten from scratch, or deleted outright. There is no support and no
-> roadmap you should trust.
+> Nothing here is stable. It may be renamed, rewritten from scratch, taken offline, or deleted
+> outright without notice. There is no support and no roadmap you should trust.
 >
 > **Please do not file issues or open pull requests.** They will most likely be closed unread.
 
@@ -100,21 +99,28 @@ Speed is the feature. Everything else follows from that:
 ## Architecture
 
 ```
-Cloudflare Worker  ──  static assets + KV cache
+Cloudflare Worker  ──  server-rendered HTML, no client bundle
       │
-      ├── mise-versions.jdx.dev   tool index, release history
-      ├── refs/notes/tak          performance (shallow single-ref fetch)
-      ├── GitHub API              contributors, repo metadata
-      └── Usage spec              command reference
+      ├── mise-versions.jdx.dev   release history, registry enrichment
+      ├── git smart HTTP v2       refs/notes/tak detection
+      ├── forge REST API          repo metadata, contributors, releases
+      └── *.usage.kdl             command reference
 ```
 
-Heavily cached by design: `max-age=300, stale-while-revalidate=3600`, with upstream
-revalidation gated on cheap ETags. The hosted service is a cache and a renderer — never the
-only copy of anything. All the underlying data stays readable without it.
+No static assets and no build step: pages are assembled at the edge and shipped as one
+document. For a reference page people hit and leave, that is both the fastest option and the
+least to maintain.
+
+Heavily cached by design — `max-age=300, stale-while-revalidate=3600`. The hosted service is a
+cache and a renderer, never the only copy of anything. Every underlying source stays readable
+without it, which is what makes it safe to switch off.
+
+**Deploys happen only from CI.** No Cloudflare credentials exist outside the `deploy` workflow's
+secrets, and nobody deploys this from a laptop.
 
 ## Status
 
-Nothing works. This is a routing skeleton and a set of opinions.
+Pages render. The interesting half — actually reading the performance data — does not.
 
 - [x] `/gh/:owner/:repo` + `/ghu/:login` routing over a forge registry
 - [x] any public repo resolves on first hit, no registration
@@ -122,7 +128,8 @@ Nothing works. This is a routing skeleton and a set of opinions.
 - [x] `*.usage.kdl` detection at repo root
 - [x] release history — mise-versions with a GitHub releases fallback
 - [x] contributors (naive; see the TODO about recency weighting)
-- [ ] any frontend whatsoever — this is JSON only
+- [x] server-rendered HTML pages (no client bundle)
+- [x] GitHub Actions deploy workflow (deploys only from CI)
 - [ ] reading note contents (packfile fetch + delta resolution)
 - [ ] KDL parsing into a command tree
 - [ ] `/ghu/:login` — needs a prebuilt inverted index

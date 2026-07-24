@@ -5,20 +5,24 @@
   "compatibility_date": "2026-07-24",
   "compatibility_flags": ["nodejs_compat"],
 
-  // Not deployed. Routes are here to document intent, commented out so a stray
-  // `wrangler deploy` cannot take over a domain that is still in use elsewhere.
-  // "routes": [{ "pattern": "usage.sh", "custom_domain": true }],
+  // Taking this custom domain makes Cloudflare replace usage.sh's DNS records.
+  // Today they are GitHub Pages A records (185.199.108-111.153) serving a 404,
+  // so nothing real is displaced — but the API token needs Zone:DNS:Edit on the
+  // usage.sh zone as well as Workers Scripts:Edit, or the deploy fails here.
+  "routes": [{ "pattern": "usage.sh", "custom_domain": true }],
 
-  "assets": {
-    "binding": "ASSETS",
-    "directory": "web/dist",
-    // Dynamic routes are Worker-first; everything else falls through to static.
-    "run_worker_first": ["/gh/*", "/u/*", "/badge/*", "/health"]
-  },
+  // No static assets: pages are server-rendered (see src/render.ts). Nothing to
+  // build, nothing to upload, and the fastest thing we can serve.
 
   "kv_namespaces": [
+    // Not yet used. Detection results and rendered pages are currently cached by
+    // Cloudflare's edge cache via cache-control alone, which is sufficient until
+    // there is an index to persist.
     // { "binding": "CACHE", "id": "TODO" }
   ],
 
-  "observability": { "enabled": true }
+  "observability": {
+    "enabled": true,
+    "logs": { "enabled": true, "head_sampling_rate": 0.1 }
+  }
 }
