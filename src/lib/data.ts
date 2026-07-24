@@ -38,31 +38,84 @@ export interface RepoData {
   slug: string;
   url: string;
   meta: RepoMeta;
-  mise: Record<string, unknown> | null;
+  /** Name in mise's registry, when it is in there at all. */
+  miseToolName: string | null;
   commands: SpecFile | null;
   performance: Performance | null;
   versions: Versions | null;
   contributors: Contributor[] | null;
 }
 
+/** One day. The registry changes slowly; a stale tool name costs nothing. */
+const INDEX_TTL_SECONDS = 86_400;
+const INDEX_KEY = "mise:slug-to-tool:v1";
+
 /**
- * Enrichment from mise's registry: backends, aqua links, aggregated releases.
- * Absence is the common case and means nothing is missing — the registry is
- * deliberately curated, so most repos are not in it.
+ * Reverse index of GitHub slug -> mise tool name.
  *
- * GitHub-only, because mise-versions keys its entries on GitHub slugs.
+ * `tools.json` is 485 KB and the only way to resolve a repo to a mise tool, so
+ * downloading it per render dominated cold page time. The derived map is ~1000
+ * short strings, which is small enough to keep whole.
+ *
+ * Also memoised per isolate: within one isolate's lifetime even the KV read is
+ * skipped. That alone helps under load, but it is not a substitute for KV —
+ * isolates are numerous and short-lived.
  */
-async function miseEntry(forge: Forge, owner: string, repo: string) {
-  if (forge.id !== "gh") return null;
+let indexMemo: { at: number; map: Record<string, string> } | null = null;
+
+async function slugToTool(kv?: KVNamespace): Promise<Record<string, string>> {
+  const now = Date.now();
+  if (indexMemo && now - indexMemo.at < INDEX_TTL_SECONDS * 1000) {
+    return indexMemo.map;
+  }
+
+  if (kv) {
+    const cached = await kv.get(INDEX_KEY, "json").catch(() => null);
+    if (cached) {
+      indexMemo = { at: now, map: cached as Record<string, string> };
+      return indexMemo.map;
+    }
+  }
+
   const res = await fetch(`${MISE_VERSIONS}/tools.json`, {
-    cf: { cacheTtl: 3600, cacheEverything: true },
+    cf: { cacheTtl: INDEX_TTL_SECONDS, cacheEverything: true },
   } as RequestInit);
-  if (!res.ok) return null;
+  if (!res.ok) return {};
+
   const { tools } = (await res.json()) as {
-    tools: Array<{ name: string; github?: string; [k: string]: unknown }>;
+    tools: Array<{ name: string; github?: string }>;
   };
-  const slug = `${owner}/${repo}`.toLowerCase();
-  return tools.find((t) => t.github?.toLowerCase() === slug) ?? null;
+  const map: Record<string, string> = {};
+  for (const t of tools) {
+    if (t.github) map[t.github.toLowerCase()] = t.name;
+  }
+
+  indexMemo = { at: now, map };
+  // Fire-and-forget: a failed write just means the next cold isolate rebuilds.
+  if (kv) {
+    kv.put(INDEX_KEY, JSON.stringify(map), {
+      expirationTtl: INDEX_TTL_SECONDS,
+    }).catch(() => {});
+  }
+  return map;
+}
+
+/**
+ * The mise tool name for a repo, if the registry knows it.
+ *
+ * Absence is the common case and means nothing is missing — the registry is
+ * deliberately curated, so most repos are not in it. GitHub-only, because
+ * mise-versions keys its entries on GitHub slugs.
+ */
+async function miseToolName(
+  forge: Forge,
+  owner: string,
+  repo: string,
+  kv?: KVNamespace,
+): Promise<string | null> {
+  if (forge.id !== "gh") return null;
+  const map = await slugToTool(kv);
+  return map[`${owner}/${repo}`.toLowerCase()] ?? null;
 }
 
 /**
@@ -141,22 +194,22 @@ export async function repoData(
   owner: string,
   repo: string,
   ctx: ForgeCtx,
+  kv?: KVNamespace,
 ): Promise<RepoData | null> {
   const meta = await forge.repoMeta(owner, repo, ctx);
   if (!meta) return null;
 
-  const [commands, perf, mise, contributors, forgeReleases] = await Promise.all([
-    forge.usageSpec(owner, repo, ctx).catch(() => null),
-    performance(forge, owner, repo).catch(() => null),
-    miseEntry(forge, owner, repo).catch(() => null),
-    forge.contributors(owner, repo, ctx).catch(() => null),
-    forge.releases(owner, repo, ctx).catch(() => null),
-  ]);
+  const [commands, perf, toolName, contributors, forgeReleases] =
+    await Promise.all([
+      forge.usageSpec(owner, repo, ctx).catch(() => null),
+      performance(forge, owner, repo).catch(() => null),
+      miseToolName(forge, owner, repo, kv).catch(() => null),
+      forge.contributors(owner, repo, ctx).catch(() => null),
+      forge.releases(owner, repo, ctx).catch(() => null),
+    ]);
 
   const versions =
-    (mise?.name
-      ? await miseReleases(mise.name as string).catch(() => null)
-      : null) ??
+    (toolName ? await miseReleases(toolName).catch(() => null) : null) ??
     (forgeReleases ? { source: forge.id, releases: forgeReleases } : null);
 
   return {
@@ -166,7 +219,7 @@ export async function repoData(
     slug: `${owner}/${repo}`,
     url: forge.webUrl(owner, repo),
     meta,
-    mise,
+    miseToolName: toolName,
     commands,
     performance: perf,
     versions,

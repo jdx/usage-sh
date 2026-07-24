@@ -5,13 +5,35 @@
   "compatibility_date": "2026-07-24",
   "compatibility_flags": ["nodejs_compat"],
 
+  // A CDN cache in front of the Worker. Workers normally run *before* cache, so
+  // a Worker-generated response is never stored by the edge — which is why
+  // responses here came back with no cf-cache-status at all. With this on, a
+  // cacheable request is served from cache without executing the Worker, driven
+  // entirely by the Cache-Control headers the pages already set.
+  "cache": { "enabled": true },
+
+  // usage.sh is the only intended entry point. Leaving these on publishes the
+  // same content at usage-sh.deps.workers.dev plus a per-deployment preview URL.
+  "workers_dev": false,
+  "preview_urls": false,
+
   // No `routes` here on purpose.
   //
   // A `custom_domain` route makes wrangler rewrite the zone's DNS, which needs
-  // Zone:DNS:Edit on top of Workers Scripts:Edit. Attaching the domain by hand
-  // once, in the dashboard, keeps the deploy token scoped to Workers only —
-  // and wrangler leaves routes it does not declare alone, so the binding
-  // survives every subsequent deploy.
+  // Zone:DNS:Edit on top of Workers Scripts:Edit. usage.sh is attached by hand
+  // in the dashboard instead, and wrangler leaves routes it does not declare
+  // alone, so the binding survives every deploy.
+
+  // Optional. Caches the mise-versions repo->tool reverse index, which is
+  // otherwise rebuilt from a 485 KB download on every cold render. The code
+  // degrades gracefully when this binding is absent, so the deploy works
+  // without it. To enable:
+  //
+  //   1. create the namespace (dashboard, or `wrangler kv namespace create MISE`
+  //      with Workers KV Storage:Edit on the token)
+  //   2. uncomment below with the returned id
+  //
+  // "kv_namespaces": [{ "binding": "MISE", "id": "TODO" }],
 
   "observability": {
     "enabled": true,
