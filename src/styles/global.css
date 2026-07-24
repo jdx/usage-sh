@@ -1,0 +1,265 @@
+/*
+ * Monospace-forward, because the subject is command-line tools and the type
+ * should look like the thing it documents. Both themes are defined at token
+ * level rather than inverted.
+ */
+:root {
+  --bg: #f6f7f9;
+  --panel: #fff;
+  --sunk: #eceff4;
+  --rule: #dbe0e8;
+  --ink: #12161d;
+  --mid: #4d5766;
+  --faint: #7d8797;
+  --accent: #9a6b00;
+  --good: #1c7a68;
+  --bad: #b0472f;
+
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo,
+    Consolas, monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0c0f14;
+    --panel: #131820;
+    --sunk: #0a0d12;
+    --rule: #242c38;
+    --ink: #e3e8ef;
+    --mid: #a0abbb;
+    --faint: #697485;
+    --accent: #d9a21b;
+    --good: #3fb39f;
+    --bad: #db7256;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.55 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 5rem;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+header {
+  border-bottom: 2px solid var(--ink);
+  padding-bottom: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.brand {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 0.6rem;
+}
+.brand a {
+  color: inherit;
+}
+
+h1 {
+  font-family: var(--mono);
+  font-size: clamp(1.4rem, 4vw, 2rem);
+  margin: 0 0 0.4rem;
+  letter-spacing: -0.03em;
+  word-break: break-word;
+  text-wrap: balance;
+}
+
+.desc {
+  color: var(--mid);
+  margin: 0;
+  max-width: 62ch;
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.9rem;
+  margin-top: 0.9rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--faint);
+}
+.facts b {
+  color: var(--mid);
+  font-weight: 500;
+}
+
+section {
+  margin-top: 2.25rem;
+}
+
+h2 {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  margin: 0 0 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+h2::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--rule);
+}
+
+.card {
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--panel);
+  padding: 1rem 1.1rem;
+}
+.card p {
+  margin: 0;
+}
+
+.empty {
+  color: var(--faint);
+  font-size: 0.85rem;
+  border: 1px dashed var(--rule);
+  border-radius: 6px;
+  padding: 0.9rem 1.1rem;
+}
+.empty code {
+  font-family: var(--mono);
+  color: var(--mid);
+}
+
+.warn {
+  border: 1px solid var(--bad);
+  border-radius: 6px;
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.8rem;
+  color: var(--bad);
+}
+
+.scroll {
+  overflow-x: auto;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.82rem;
+}
+th,
+td {
+  text-align: left;
+  padding: 0.4rem 0.65rem;
+  border-bottom: 1px solid var(--rule);
+}
+th {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+  font-weight: 600;
+}
+td.num {
+  font-family: var(--mono);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+td.m {
+  font-family: var(--mono);
+}
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.person {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem 0.2rem 0.2rem;
+  font-size: 0.8rem;
+  background: var(--panel);
+  color: var(--ink);
+}
+.person:hover {
+  text-decoration: none;
+  border-color: var(--accent);
+}
+.person img {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: block;
+}
+.person span {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+}
+
+pre {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  overflow-x: auto;
+  color: var(--mid);
+  max-height: 26rem;
+}
+
+code {
+  font-family: var(--mono);
+}
+
+footer {
+  margin-top: 3.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--faint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

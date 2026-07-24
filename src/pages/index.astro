@@ -1,0 +1,51 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base
+  title="usage.sh"
+  description="Commands, performance, versions and contributors for any public CLI repository."
+>
+  <header>
+    <div class="brand">usage.sh</div>
+    <h1>a homepage for command-line tools</h1>
+    <p class="desc">
+      Commands, performance, versions and contributors for any public
+      repository — assembled live, with no registration.
+    </p>
+  </header>
+
+  <div class="warn">
+    <b>Experimental.</b> Unfinished side project. Don't rely on it, don't link to
+    it.
+  </div>
+
+  <section>
+    <h2>Try it</h2>
+    <div class="card">
+      <pre>{`/gh/jdx/tak
+/gh/astral-sh/uv
+/gh/sharkdp/hyperfine
+
+/ghu/jdx          (not built yet)`}</pre>
+    </div>
+  </section>
+
+  <section>
+    <h2>How it works</h2>
+    <div class="card">
+      <p>
+        Every section is detected live from public data. A <code
+          >*.usage.kdl</code
+        > in the repo becomes a command reference. A <code>refs/notes/tak</code>
+        ref becomes performance history. Neither is required — versions and contributors
+        work for any repo.
+      </p>
+    </div>
+  </section>
+
+  <footer>
+    <a href="https://github.com/jdx/usage-sh">source</a> &middot;
+    <a href="https://github.com/jdx/tak">tak</a>
+  </footer>
+</Base>

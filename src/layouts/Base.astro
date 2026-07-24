@@ -1,0 +1,28 @@
+---
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>{title}</title>
+    {description && <meta name="description" content={description} />}
+    <meta name="color-scheme" content="light dark" />
+    {/* Nothing here is finished; keep it out of search results for now. */}
+    <meta name="robots" content="noindex" />
+  </head>
+  <body>
+    <div class="wrap">
+      <slot />
+    </div>
+  </body>
+</html>

@@ -1,0 +1,38 @@
+---
+import Base from "../../layouts/Base.astro";
+
+const { login } = Astro.params;
+
+/*
+ * NOT IMPLEMENTED. Fanning out over every known repo per request is not viable;
+ * this needs an inverted index (contributor -> tools) built on a schedule. The
+ * repo set to build it from is the union of the mise-versions seed and every
+ * repo anyone has ever loaded a page for — so the index grows from use rather
+ * than from registration.
+ */
+Astro.response.status = 501;
+---
+
+<Base title={`${login} — usage.sh`}>
+  <header>
+    <div class="brand"><a href="/">usage.sh</a></div>
+    <h1>{login}</h1>
+    <p class="desc">Per-person pages aren't built yet.</p>
+  </header>
+
+  <div class="card">
+    <p>
+      This will show everything {login} has contributed across every indexed CLI —
+      the answer to "who actually maintains the tools I depend on."
+    </p>
+    <p style="margin-top:.75rem;color:var(--faint);font-size:.85rem">
+      It needs an inverted index built on a schedule; resolving it per request
+      would mean querying every known repository.
+    </p>
+  </div>
+
+  <footer>
+    <a href={`https://github.com/${login}`}>{login} on GitHub ↗</a> &middot;
+    <a href="/">home</a>
+  </footer>
+</Base>

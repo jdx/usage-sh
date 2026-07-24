@@ -1,0 +1,185 @@
+---
+import { env } from "cloudflare:workers";
+
+import Base from "../../../layouts/Base.astro";
+import { github } from "../../../forges/github";
+import { repoData } from "../../../lib/data";
+
+const { owner, repo } = Astro.params;
+
+// `?format=json` returns the same assembled data, so every page is also an API.
+const asJson = Astro.url.searchParams.get("format") === "json";
+
+const data =
+  owner && repo
+    ? await repoData(github, owner, repo, {
+        token: (env as { GITHUB_TOKEN?: string }).GITHUB_TOKEN,
+      })
+    : null;
+
+if (!data) {
+  return new Response(
+    asJson
+      ? JSON.stringify({ error: `${owner}/${repo} not found or not public` })
+      : `Not found: ${owner}/${repo} is not a public GitHub repository.`,
+    {
+      status: 404,
+      headers: {
+        "content-type": asJson
+          ? "application/json; charset=utf-8"
+          : "text/plain; charset=utf-8",
+      },
+    },
+  );
+}
+
+if (asJson) {
+  return new Response(JSON.stringify(data, null, 2), {
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      "cache-control": "public, max-age=300, stale-while-revalidate=3600",
+    },
+  });
+}
+
+Astro.response.headers.set(
+  "cache-control",
+  "public, max-age=300, stale-while-revalidate=3600",
+);
+
+const m = data.meta;
+const releases = data.versions?.releases ?? [];
+---
+
+<Base
+  title={`${data.slug} — usage.sh`}
+  description={m.description ?? undefined}
+>
+  <header>
+    <div class="brand"><a href="/">usage.sh</a></div>
+    <h1>{data.slug}</h1>
+    <p class="desc">{m.description}</p>
+    <div class="facts">
+      {m.language && <span><b>{m.language}</b></span>}
+      {m.stars != null && <span><b>{m.stars.toLocaleString()}</b> stars</span>}
+      {m.pushed_at && <span>pushed <b>{m.pushed_at.slice(0, 10)}</b></span>}
+      {m.archived && <span style="color:var(--bad)"><b>archived</b></span>}
+      <span><a href={data.url}>{data.forgeName} ↗</a></span>
+    </div>
+  </header>
+
+  <div class="warn">
+    <b>Experimental.</b> This is an unfinished side project and the data may be wrong,
+    stale, or absent. Don't rely on it.
+  </div>
+
+  <section>
+    <h2>Commands</h2>
+    {
+      data.commands ? (
+        <>
+          {/* TODO: parse KDL into a command tree instead of showing source. */}
+          <div class="card"><pre>{data.commands.raw.slice(0, 8000)}</pre></div>
+          <div class="facts"><span>from <b>{data.commands.file}</b></span></div>
+        </>
+      ) : (
+        <div class="empty">
+          No <code>*.usage.kdl</code> in this repository.{" "}
+          <a href="https://usage.jdx.dev">Usage</a> specs render here automatically.
+        </div>
+      )
+    }
+  </section>
+
+  <section>
+    <h2>Performance</h2>
+    {
+      data.performance ? (
+        <div class="card">
+          <p>Performance data detected.</p>
+          <div class="facts">
+            <span>notes ref <b>{data.performance.notes_sha.slice(0, 12)}</b></span>
+          </div>
+          <p style="margin-top:.75rem;color:var(--faint);font-size:.8rem">
+            Reading the measurements needs a packfile fetch and delta resolution —
+            not built yet.
+          </p>
+        </div>
+      ) : (
+        <div class="empty">
+          No <code>refs/notes/tak</code> in this repository. Projects using{" "}
+          <a href="https://github.com/jdx/tak">tak</a> show performance history here.
+        </div>
+      )
+    }
+  </section>
+
+  <section>
+    <h2>Versions</h2>
+    {
+      releases.length ? (
+        <>
+          <div class="card scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>tag</th>
+                  <th style="text-align:right">published</th>
+                </tr>
+              </thead>
+              <tbody>
+                {releases.slice(0, 25).map((r) => (
+                  <tr>
+                    <td class="m">
+                      {r.url ? <a href={r.url}>{r.tag}</a> : r.tag}
+                      {r.prerelease && <span style="color:var(--faint)"> pre</span>}
+                    </td>
+                    <td class="num">{r.published_at?.slice(0, 10) ?? ""}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div class="facts">
+            <span>source <b>{data.versions?.source}</b></span>
+            <span><b>{releases.length}</b> releases</span>
+          </div>
+        </>
+      ) : (
+        <div class="empty">No releases found.</div>
+      )
+    }
+  </section>
+
+  <section>
+    <h2>Contributors</h2>
+    {
+      data.contributors?.length ? (
+        <>
+          <div class="people">
+            {data.contributors.map((p) => (
+              <a class="person" href={`/${data.userPath}/${p.login}`}>
+                {p.avatar_url && (
+                  <img src={`${p.avatar_url}&s=40`} alt="" loading="lazy" width="20" height="20" />
+                )}
+                <b>{p.login}</b>
+                <span>{p.contributions}</span>
+              </a>
+            ))}
+          </div>
+          <div class="facts">
+            <span>ranked by all-time commits — <b>not</b> weighted for recency</span>
+          </div>
+        </>
+      ) : (
+        <div class="empty">No contributor data available.</div>
+      )
+    }
+  </section>
+
+  <footer>
+    Assembled live from public sources. Nothing is registered or stored. &middot;
+    <a href="?format=json">JSON</a> &middot;
+    <a href="https://github.com/jdx/usage-sh">source</a>
+  </footer>
+</Base>
