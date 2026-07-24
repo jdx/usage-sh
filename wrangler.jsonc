@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "usage-sh",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-07-24",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Not deployed. Routes are here to document intent, commented out so a stray
+  // `wrangler deploy` cannot take over a domain that is still in use elsewhere.
+  // "routes": [{ "pattern": "usage.sh", "custom_domain": true }],
+
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "web/dist",
+    // Dynamic routes are Worker-first; everything else falls through to static.
+    "run_worker_first": ["/gh/*", "/u/*", "/badge/*", "/health"]
+  },
+
+  "kv_namespaces": [
+    // { "binding": "CACHE", "id": "TODO" }
+  ],
+
+  "observability": { "enabled": true }
+}

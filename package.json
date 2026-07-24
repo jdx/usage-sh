@@ -1,0 +1,19 @@
+{
+  "name": "usage-sh",
+  "private": true,
+  "version": "0.0.0",
+  "description": "A homepage for command-line tools. Experimental; do not use.",
+  "license": "MIT",
+  "repository": "github:jdx/usage-sh",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "dev": "wrangler dev",
+    "deploy": "echo 'not deployed on purpose — see README' && exit 1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5",
+    "typescript": "^5",
+    "wrangler": "^4"
+  }
+}
