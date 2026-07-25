@@ -245,7 +245,19 @@ export function parseNote(body: string): TakRecord[] {
     try {
       const r = JSON.parse(line) as TakRecord;
       // A newer writer must not break an older reader.
-      if (typeof r.v === "number" && r.v <= MAX_RECORD_V && r.metrics) {
+      // `ts` is validated as a string because `toSeries` sorts on it with
+      // localeCompare, which throws on anything else — and one bad line would
+      // then take down every chart for the repository.
+      if (
+        typeof r.v === "number" &&
+        r.v <= MAX_RECORD_V &&
+        typeof r.ts === "string" &&
+        typeof r.bench === "string" &&
+        typeof r.tool === "string" &&
+        typeof r.runner === "string" &&
+        r.metrics !== null &&
+        typeof r.metrics === "object"
+      ) {
         out.push(r);
       }
     } catch {

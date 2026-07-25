@@ -179,12 +179,29 @@ export function applyDelta(base: Uint8Array, delta: Uint8Array): Uint8Array {
  * Deltas may reference a base that appears later in the pack, so unresolved
  * ones are retried until a pass makes no progress.
  */
+/**
+ * Ceilings on what one repository may ask the Worker to do.
+ *
+ * Any public repo can point this at an arbitrarily large notes ref, and a
+ * Worker that exceeds its CPU or memory budget is killed rather than degrading.
+ * Refusing early turns that into the "detected, not read" state, which is a
+ * page that still renders.
+ */
+const MAX_PACK_BYTES = 8 * 1024 * 1024;
+const MAX_OBJECTS = 20_000;
+
 export async function parsePack(pack: Uint8Array): Promise<Map<string, GitObject>> {
   if (String.fromCharCode(...pack.subarray(0, 4)) !== "PACK") {
     throw new Error("not a packfile");
   }
+  if (pack.length > MAX_PACK_BYTES) {
+    throw new Error(`packfile is ${pack.length} bytes, over the ${MAX_PACK_BYTES} limit`);
+  }
   const view = new DataView(pack.buffer, pack.byteOffset);
   const count = view.getUint32(8);
+  if (count > MAX_OBJECTS) {
+    throw new Error(`packfile declares ${count} objects, over the ${MAX_OBJECTS} limit`);
+  }
 
   const byId = new Map<string, GitObject>();
   const byOffset = new Map<number, GitObject>();
@@ -270,11 +287,19 @@ export function parseTree(data: Uint8Array): TreeEntry[] {
   const entries: TreeEntry[] = [];
   const dec = new TextDecoder();
   let pos = 0;
+
+  // Every scan is bounded. Tree bytes come off the network, and an unterminated
+  // entry would otherwise spin these loops past the end of the buffer forever,
+  // hanging the request rather than failing it.
   while (pos < data.length) {
     let sp = pos;
-    while (data[sp] !== 0x20) sp++;
+    while (sp < data.length && data[sp] !== 0x20) sp++;
+    if (sp >= data.length) break;
+
     let nul = sp + 1;
-    while (data[nul] !== 0) nul++;
+    while (nul < data.length && data[nul] !== 0) nul++;
+    if (nul + 20 >= data.length) break;
+
     entries.push({
       name: dec.decode(data.subarray(sp + 1, nul)),
       id: hex(data.subarray(nul + 1, nul + 21)),
@@ -357,6 +382,13 @@ export async function fetchNotes(
     cf: { cacheTtl: 3600, cacheEverything: true },
   } as RequestInit);
   if (!res.ok) throw new Error(`git-upload-pack returned ${res.status}`);
+
+  // Checked before buffering: `arrayBuffer()` on an unbounded body is the one
+  // step that can exhaust memory before any limit inside parsePack applies.
+  const declared = Number(res.headers.get("content-length") ?? 0);
+  if (declared > MAX_PACK_BYTES) {
+    throw new Error(`response is ${declared} bytes, over the ${MAX_PACK_BYTES} limit`);
+  }
 
   const objects = await parsePack(
     extractPack(new Uint8Array(await res.arrayBuffer())),
