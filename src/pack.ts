@@ -83,13 +83,40 @@ export function extractPack(raw: Uint8Array): Uint8Array {
   return out;
 }
 
-/** Inflate one zlib stream, returning the data and how many bytes it consumed. */
+/**
+ * Inflate one zlib stream, returning the data and how many bytes it consumed.
+ *
+ * Output is accumulated chunk by chunk and abandoned the moment it passes the
+ * cap. Checking `inflator.result` afterwards is too late: by then pako has
+ * already materialised the entire decompressed object, so a small pack holding
+ * one enormously compressible blob would exhaust the Worker before any guard
+ * ran.
+ */
 function inflateAt(data: Uint8Array, offset: number): {
   out: Uint8Array;
   consumed: number;
 } {
   const inflator = new Inflate();
+
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  let overflowed = false;
+  inflator.onData = (chunk: Uint8Array) => {
+    size += chunk.length;
+    if (size > MAX_OBJECT_BYTES) {
+      // pako has no way to stop mid-stream, so drop what we have and refuse
+      // to keep accumulating. The allocation stays bounded either way.
+      overflowed = true;
+      parts.length = 0;
+      return;
+    }
+    parts.push(chunk);
+  };
+
   inflator.push(data.subarray(offset));
+  if (overflowed) {
+    throw new Error(`object inflates past ${MAX_OBJECT_BYTES} bytes`);
+  }
   if (inflator.err) {
     throw new Error(`inflate failed at ${offset}: ${inflator.msg}`);
   }
@@ -99,7 +126,14 @@ function inflateAt(data: Uint8Array, offset: number): {
   const { next_in: consumed } = (
     inflator as unknown as { strm: { next_in: number } }
   ).strm;
-  return { out: inflator.result as Uint8Array, consumed };
+
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const c of parts) {
+    out.set(c, at);
+    at += c.length;
+  }
+  return { out, consumed };
 }
 
 /** Git's object id: sha1 of `"<type> <len>\0" + content`. */
@@ -219,6 +253,8 @@ const MAX_PACK_BYTES = 8 * 1024 * 1024;
 const MAX_OBJECTS = 20_000;
 /** Sideband framing adds a little over the pack itself. */
 const MAX_RESPONSE_BYTES = MAX_PACK_BYTES + 1024 * 1024;
+/** Upper bound on how long one repository may hold the request open. */
+const FETCH_TIMEOUT_MS = 10_000;
 /** A single object big enough to blow the budget on its own. */
 const MAX_OBJECT_BYTES = 4 * 1024 * 1024;
 /**
@@ -282,11 +318,8 @@ export async function parsePack(pack: Uint8Array): Promise<Map<string, GitObject
 
     const { out, consumed } = inflateAt(pack, pos);
     pos += consumed;
-    // Guards the highly-compressed case: a small pack can inflate to something
-    // that will not fit in the Worker's budget.
-    if (out.length > MAX_OBJECT_BYTES) {
-      throw new Error(`object inflates to ${out.length} bytes, over the limit`);
-    }
+    // Per-object size is enforced inside `inflateAt`, before the bytes are
+    // ever accumulated; this tracks the running total across all of them.
     account(out.length);
 
     if (baseRef === null) {
@@ -481,6 +514,9 @@ export async function fetchNotes(
       "user-agent": "usage.sh",
     },
     body,
+    // Without this a slow or hanging remote holds the Worker until the runtime
+    // kills it, losing the whole page rather than just this section.
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     // Keyed on the notes sha by the caller, so this only refetches when the
     // ref actually moves.
     cf: { cacheTtl: 3600, cacheEverything: true },
