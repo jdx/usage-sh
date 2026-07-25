@@ -24,16 +24,28 @@
   // in the dashboard instead, and wrangler leaves routes it does not declare
   // alone, so the binding survives every deploy.
 
-  // Optional. Caches the mise-versions repo->tool reverse index, which is
-  // otherwise rebuilt from a 485 KB download on every cold render. The code
-  // degrades gracefully when this binding is absent, so the deploy works
-  // without it. To enable:
-  //
-  //   1. create the namespace (dashboard, or `wrangler kv namespace create MISE`
-  //      with Workers KV Storage:Edit on the token)
-  //   2. uncomment below with the returned id
-  //
-  // "kv_namespaces": [{ "binding": "MISE", "id": "TODO" }],
+  // Bindings MUST be declared here even though they were created in the
+  // dashboard: `wrangler deploy` treats this file as authoritative and drops
+  // any binding it does not find, so an omission here silently unbinds them on
+  // the next deploy.
+  "kv_namespaces": [
+    {
+      "binding": "CACHE",
+      "id": "e9c42a8c00044d61866484d66bf0d112"
+    }
+  ],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "usage-sh",
+      "database_id": "725d6166-8649-4ee2-8b53-954e840608d6"
+    }
+  ],
+
+  // wrangler's own migration runner tracks applied files in a `d1_migrations`
+  // table; `wrangler d1 migrations apply` runs from CI after deploy.
+  "migrations_dir": "migrations",
 
   "observability": {
     "enabled": true,

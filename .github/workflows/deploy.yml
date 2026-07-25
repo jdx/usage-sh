@@ -10,6 +10,8 @@ on:
       - "src/**"
       - "astro.config.mjs"
       - "wrangler.jsonc"
+      # A commit that only adds SQL still has to reach the migration step.
+      - "migrations/**"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/deploy.yml"
@@ -59,6 +61,15 @@ jobs:
             echo "::warning::Deploy attempt $attempt failed; retrying in ${delay}s"
             sleep "$delay"
           done
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      # After the code, so a migration never lands for a version that failed to
+      # deploy. wrangler tracks applied files in a d1_migrations table, so this
+      # is a no-op when there is nothing new. Needs D1:Edit on the token.
+      - name: Apply D1 migrations
+        run: npx wrangler d1 migrations apply usage-sh --remote
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
