@@ -265,6 +265,10 @@ const MAX_RESPONSE_BYTES = MAX_PACK_BYTES + 1024 * 1024;
  * that a normal pack costs only a handful of iterations.
  */
 const INFLATE_CHUNK = 64 * 1024;
+/** Notes fan out two levels; anything deeper is not a notes tree. */
+const MAX_TREE_DEPTH = 4;
+/** Ceiling on notes collected from one repository. */
+const MAX_NOTES = 50_000;
 /** Upper bound on how long one repository may hold the request open. */
 const FETCH_TIMEOUT_MS = 10_000;
 /** A single object big enough to blow the budget on its own. */
@@ -441,17 +445,27 @@ export function readNotesTree(
   const out = new Map<string, string>();
   const dec = new TextDecoder();
 
-  // Git trees form a DAG, not a tree: identical subtrees are stored once and
-  // referenced from many parents. Walking without a visited set revisits each
-  // shared child once per path reaching it, which grows exponentially in the
-  // depth of the layering while the number of distinct objects stays small.
-  // Notes fan out at most two levels in practice, but the pack comes from an
-  // arbitrary public repository and does not have to be well behaved.
+  // Git trees form a DAG: identical subtrees are stored once and referenced
+  // from several parents, so a naive walk revisits a shared child once per path
+  // reaching it and the work grows exponentially in the depth of the layering.
+  //
+  // The guard is keyed on *(prefix, id)*, not id alone. Output keys carry the
+  // parent prefix, so the same subtree reached by two different paths yields
+  // two different sets of commit ids — deduplicating on id would silently drop
+  // every note under the second path. What must not repeat is the same subtree
+  // at the same prefix, which is the only genuinely redundant case.
+  //
+  // A DAG can still have exponentially many distinct paths, so depth and total
+  // entries are capped as well. Notes fan out at most two levels in practice,
+  // but the pack comes from an arbitrary public repository and is not obliged
+  // to be well behaved.
   const visited = new Set<string>();
 
-  const walk = (id: string, prefix: string) => {
-    if (visited.has(id)) return;
-    visited.add(id);
+  const walk = (id: string, prefix: string, depth: number) => {
+    if (depth > MAX_TREE_DEPTH || out.size >= MAX_NOTES) return;
+    const key = `${prefix}\u0000${id}`;
+    if (visited.has(key)) return;
+    visited.add(key);
 
     const tree = objects.get(id);
     if (!tree || tree.type !== OBJ_TREE) return;
@@ -459,14 +473,15 @@ export function readNotesTree(
       const child = objects.get(e.id);
       if (!child) continue;
       if (child.type === OBJ_TREE) {
-        walk(e.id, prefix + e.name);
+        walk(e.id, prefix + e.name, depth + 1);
       } else if (child.type === OBJ_BLOB) {
+        if (out.size >= MAX_NOTES) return;
         out.set(prefix + e.name, dec.decode(child.data));
       }
     }
   };
 
-  walk(treeId, "");
+  walk(treeId, "", 0);
   return out;
 }
 
