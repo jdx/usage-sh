@@ -10,6 +10,7 @@ import { parse as parseToml } from "smol-toml";
 
 import type { Contributor, Forge, ForgeCtx, RepoMeta, SpecFile } from "../forges";
 import { takNotesSha } from "../git";
+import { fetchNotes } from "../pack";
 
 const MISE_VERSIONS = "https://mise-versions.jdx.dev";
 
@@ -25,10 +26,35 @@ export interface Versions {
   releases: ReleaseRow[];
 }
 
+/** One measurement, as stored on a line of a git note. */
+export interface TakRecord {
+  v: number;
+  bench: string;
+  tool: string;
+  version?: string;
+  runner: string;
+  ts: string;
+  metrics: Record<string, number>;
+}
+
+/** A benchmark's history on one runner class, oldest first. */
+export interface Series {
+  bench: string;
+  tool: string;
+  runner: string;
+  points: Array<{
+    ts: string;
+    version: string | null;
+    instructions: number | null;
+    wall_min_ms: number | null;
+  }>;
+}
+
 export interface Performance {
   present: true;
   notes_sha: string;
-  records: null;
+  series: Series[];
+  records: number;
 }
 
 export interface RepoData {
@@ -174,13 +200,90 @@ async function miseReleases(toolName: string): Promise<Versions | null> {
  * ref SHA, which decides whether the section has anything and doubles as its
  * cache key.
  */
+/** Highest schema version this reader understands. */
+const MAX_RECORD_V = 1;
+
+/**
+ * Group records into per-(bench, tool, runner) series, oldest first.
+ *
+ * Runner is part of the key rather than a label: absolute counts shift between
+ * machine classes, so charting two runners as one line would invent a step
+ * change that never happened.
+ */
+export function toSeries(records: TakRecord[]): Series[] {
+  const byKey = new Map<string, Series>();
+
+  for (const r of records) {
+    const key = `${r.bench}\u0000${r.tool}\u0000${r.runner}`;
+    let s = byKey.get(key);
+    if (!s) {
+      s = { bench: r.bench, tool: r.tool, runner: r.runner, points: [] };
+      byKey.set(key, s);
+    }
+    s.points.push({
+      ts: r.ts,
+      version: r.version ?? null,
+      instructions: r.metrics.instructions ?? null,
+      wall_min_ms: r.metrics.wall_min_ms ?? null,
+    });
+  }
+
+  for (const s of byKey.values()) {
+    // Sorted by timestamp, never by version string — tool versions are
+    // frequently not orderable and must stay opaque.
+    s.points.sort((a, b) => a.ts.localeCompare(b.ts));
+  }
+  // Longest series first: that is the one worth looking at.
+  return [...byKey.values()].sort((a, b) => b.points.length - a.points.length);
+}
+
+/** Parse a note body, skipping lines this reader cannot understand. */
+export function parseNote(body: string): TakRecord[] {
+  const out: TakRecord[] = [];
+  for (const line of body.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const r = JSON.parse(line) as TakRecord;
+      // A newer writer must not break an older reader.
+      if (typeof r.v === "number" && r.v <= MAX_RECORD_V && r.metrics) {
+        out.push(r);
+      }
+    } catch {
+      // One malformed line must not discard a repository's whole history.
+    }
+  }
+  return out;
+}
+
+/**
+ * Performance history from `refs/notes/tak`.
+ *
+ * Detection is one cheap `ls-refs`; the contents are one `fetch` returning a
+ * packfile with every note in it. If the pack read fails the section still
+ * renders as "detected", because knowing data exists is better than pretending
+ * it does not.
+ */
 async function performance(
   forge: Forge,
   owner: string,
   repo: string,
 ): Promise<Performance | null> {
-  const sha = await takNotesSha(forge.cloneUrl(owner, repo));
-  return sha ? { present: true, notes_sha: sha, records: null } : null;
+  const cloneUrl = forge.cloneUrl(owner, repo);
+  const sha = await takNotesSha(cloneUrl);
+  if (!sha) return null;
+
+  try {
+    const notes = await fetchNotes(cloneUrl, sha);
+    const records = [...notes.values()].flatMap(parseNote);
+    return {
+      present: true,
+      notes_sha: sha,
+      series: toSeries(records),
+      records: records.length,
+    };
+  } catch {
+    return { present: true, notes_sha: sha, series: [], records: 0 };
+  }
 }
 
 /**

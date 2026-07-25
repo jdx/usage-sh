@@ -2,6 +2,7 @@
 import { env } from "cloudflare:workers";
 
 import Base from "../../../layouts/Base.astro";
+import Sparkline from "../../../components/Sparkline.astro";
 import { github } from "../../../forges/github";
 import { recordRepo } from "../../../lib/db";
 import { repoData } from "../../../lib/data";
@@ -83,6 +84,27 @@ Astro.response.headers.set(
 
 const m = data.meta;
 const releases = data.versions?.releases ?? [];
+
+// Instruction counts are the gate-able metric, so they lead. Wall clock is
+// shown only where a series has no counters at all — on macOS and Windows
+// runners there is no usable cachegrind.
+const perfSeries = (data.performance?.series ?? [])
+  .map((s) => {
+    const withIns = s.points.filter((p) => p.instructions !== null);
+    const useIns = withIns.length >= 2;
+    const pts = (useIns ? withIns : s.points)
+      .map((p) => ({
+        ts: p.ts,
+        version: p.version,
+        value: (useIns ? p.instructions : p.wall_min_ms) ?? 0,
+      }))
+      .filter((p) => p.value > 0);
+    return { s, pts, metric: useIns ? "instructions" : "wall_min_ms" };
+  })
+  .filter((x) => x.pts.length >= 2);
+
+const fmtInt = (n: number) => n.toLocaleString();
+const fmtMs = (n: number) => `${n.toFixed(2)}ms`;
 ---
 
 <Base
@@ -128,16 +150,29 @@ const releases = data.versions?.releases ?? [];
   <section>
     <h2>Performance</h2>
     {
-      data.performance ? (
+      data.performance && perfSeries.length ? (
+        <>
+          <div class="charts">
+            {perfSeries.map(({ s, pts, metric }) => (
+              <Sparkline
+                points={pts}
+                label={`${s.bench} · ${metric} · ${s.runner}`}
+                format={metric === "instructions" ? fmtInt : fmtMs}
+              />
+            ))}
+          </div>
+          <div class="facts">
+            <span><b>{data.performance.records}</b> measurements</span>
+            <span>notes ref <b>{data.performance.notes_sha.slice(0, 12)}</b></span>
+            <span>via <a href="https://github.com/jdx/tak">tak</a></span>
+          </div>
+        </>
+      ) : data.performance ? (
         <div class="card">
-          <p>Performance data detected.</p>
+          <p>Performance data detected, but no series could be read from it.</p>
           <div class="facts">
             <span>notes ref <b>{data.performance.notes_sha.slice(0, 12)}</b></span>
           </div>
-          <p style="margin-top:.75rem;color:var(--faint);font-size:.8rem">
-            Reading the measurements needs a packfile fetch and delta resolution —
-            not built yet.
-          </p>
         </div>
       ) : (
         <div class="empty">
