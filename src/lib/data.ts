@@ -63,14 +63,14 @@ const INDEX_KEY = "mise:slug-to-tool:v1";
  */
 let indexMemo: { at: number; map: Record<string, string> } | null = null;
 
-async function slugToTool(kv?: KVNamespace): Promise<Record<string, string>> {
+async function slugToTool(cache?: KVNamespace): Promise<Record<string, string>> {
   const now = Date.now();
   if (indexMemo && now - indexMemo.at < INDEX_TTL_SECONDS * 1000) {
     return indexMemo.map;
   }
 
-  if (kv) {
-    const cached = await kv.get(INDEX_KEY, "json").catch(() => null);
+  if (cache) {
+    const cached = await cache.get(INDEX_KEY, "json").catch(() => null);
     if (cached) {
       indexMemo = { at: now, map: cached as Record<string, string> };
       return indexMemo.map;
@@ -92,8 +92,8 @@ async function slugToTool(kv?: KVNamespace): Promise<Record<string, string>> {
 
   indexMemo = { at: now, map };
   // Fire-and-forget: a failed write just means the next cold isolate rebuilds.
-  if (kv) {
-    kv.put(INDEX_KEY, JSON.stringify(map), {
+  if (cache) {
+    cache.put(INDEX_KEY, JSON.stringify(map), {
       expirationTtl: INDEX_TTL_SECONDS,
     }).catch(() => {});
   }
@@ -111,10 +111,10 @@ async function miseToolName(
   forge: Forge,
   owner: string,
   repo: string,
-  kv?: KVNamespace,
+  cache?: KVNamespace,
 ): Promise<string | null> {
   if (forge.id !== "gh") return null;
-  const map = await slugToTool(kv);
+  const map = await slugToTool(cache);
   return map[`${owner}/${repo}`.toLowerCase()] ?? null;
 }
 
@@ -194,7 +194,7 @@ export async function repoData(
   owner: string,
   repo: string,
   ctx: ForgeCtx,
-  kv?: KVNamespace,
+  cache?: KVNamespace,
 ): Promise<RepoData | null> {
   const meta = await forge.repoMeta(owner, repo, ctx);
   if (!meta) return null;
@@ -203,7 +203,7 @@ export async function repoData(
     await Promise.all([
       forge.usageSpec(owner, repo, ctx).catch(() => null),
       performance(forge, owner, repo).catch(() => null),
-      miseToolName(forge, owner, repo, kv).catch(() => null),
+      miseToolName(forge, owner, repo, cache).catch(() => null),
       forge.contributors(owner, repo, ctx).catch(() => null),
       forge.releases(owner, repo, ctx).catch(() => null),
     ]);

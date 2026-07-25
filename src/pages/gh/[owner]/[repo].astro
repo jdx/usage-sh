@@ -3,6 +3,7 @@ import { env } from "cloudflare:workers";
 
 import Base from "../../../layouts/Base.astro";
 import { github } from "../../../forges/github";
+import { recordRepo } from "../../../lib/db";
 import { repoData } from "../../../lib/data";
 
 const { owner, repo } = Astro.params;
@@ -10,9 +11,13 @@ const { owner, repo } = Astro.params;
 // `?format=json` returns the same assembled data, so every page is also an API.
 const asJson = Astro.url.searchParams.get("format") === "json";
 
-// MISE is optional — it caches the mise-versions reverse index. Without the
-// binding the page still renders, just rebuilding that index more often.
-const runtime = env as { GITHUB_TOKEN?: string; MISE?: KVNamespace };
+// Both bindings are optional. Without CACHE the mise-versions reverse index is
+// rebuilt more often; without DB nothing is indexed. Neither affects the page.
+const runtime = env as {
+  GITHUB_TOKEN?: string;
+  CACHE?: KVNamespace;
+  DB?: D1Database;
+};
 
 const data =
   owner && repo
@@ -21,9 +26,25 @@ const data =
         owner,
         repo,
         { token: runtime.GITHUB_TOKEN },
-        runtime.MISE,
+        runtime.CACHE,
       )
     : null;
+
+// Bookkeeping only — the index grows from use rather than registration, which
+// is what makes a per-person view possible later. Deliberately not awaited: it
+// must never delay or fail a render.
+if (data) {
+  Astro.locals.cfContext?.waitUntil(
+    recordRepo(runtime.DB, {
+      forge: data.forgeId,
+      owner: owner!,
+      name: repo!,
+      stars: data.meta.stars,
+      hasTak: data.performance !== null,
+      hasSpec: data.commands !== null,
+    }),
+  );
+}
 
 if (!data) {
   return new Response(
@@ -186,7 +207,8 @@ const releases = data.versions?.releases ?? [];
   </section>
 
   <footer>
-    Assembled live from public sources. Nothing is registered or stored. &middot;
+    Assembled live from public sources. Nothing to register — loading a page is
+    what indexes it. &middot;
     <a href="?format=json">JSON</a> &middot;
     <a href="https://github.com/jdx/usage-sh">source</a>
   </footer>
