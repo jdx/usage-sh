@@ -55,6 +55,8 @@ export interface Performance {
   notes_sha: string;
   series: Series[];
   records: number;
+  /** Whether the pack was fetched and parsed, whatever it turned out to hold. */
+  read: boolean;
 }
 
 export interface RepoData {
@@ -289,9 +291,12 @@ async function performance(
       notes_sha: sha,
       series: toSeries(records),
       records: records.length,
+      read: true,
     };
   } catch {
-    return { present: true, notes_sha: sha, series: [], records: 0 };
+    // Distinguished from "read fine, contained nothing we understand" so the
+    // page can say which happened rather than blaming a fetch that worked.
+    return { present: true, notes_sha: sha, series: [], records: 0, read: false };
   }
 }
 

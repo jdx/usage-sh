@@ -170,9 +170,13 @@ const fmtMs = (n: number) => `${n.toFixed(2)}ms`;
       ) : data.performance ? (
         <div class="card">
           <p>
-            {data.performance.records > 0
-              ? `${data.performance.records} measurement${data.performance.records === 1 ? "" : "s"} recorded, but no series has enough points to chart yet — two per benchmark and runner.`
-              : "Performance data detected, but none of it could be read."}
+            {
+              data.performance.records > 0
+                ? `${data.performance.records} measurement${data.performance.records === 1 ? "" : "s"} recorded, but no series has enough points to chart yet — two per benchmark and runner.`
+                : data.performance.read
+                  ? "Performance data found, but none of it is in a format this page understands."
+                  : "Performance data detected, but it could not be read."
+            }
           </p>
           <div class="facts">
             <span>notes ref <b>{data.performance.notes_sha.slice(0, 12)}</b></span>

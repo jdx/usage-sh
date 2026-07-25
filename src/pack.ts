@@ -269,6 +269,8 @@ const INFLATE_CHUNK = 64 * 1024;
 const MAX_TREE_DEPTH = 4;
 /** Ceiling on notes collected from one repository. */
 const MAX_NOTES = 50_000;
+/** Ceiling on tree nodes walked, which `MAX_NOTES` does not bound. */
+const MAX_TREE_VISITS = 100_000;
 /** Upper bound on how long one repository may hold the request open. */
 const FETCH_TIMEOUT_MS = 10_000;
 /** A single object big enough to blow the budget on its own. */
@@ -460,9 +462,15 @@ export function readNotesTree(
   // but the pack comes from an arbitrary public repository and is not obliged
   // to be well behaved.
   const visited = new Set<string>();
+  // `MAX_NOTES` bounds what is *emitted*, not what is walked: a DAG with many
+  // distinct prefixes over shared, entry-heavy subtrees reparses those subtrees
+  // once per prefix while emitting almost nothing. The traversal needs its own
+  // ceiling.
+  let visits = 0;
 
   const walk = (id: string, prefix: string, depth: number) => {
     if (depth > MAX_TREE_DEPTH || out.size >= MAX_NOTES) return;
+    if (++visits > MAX_TREE_VISITS) return;
     const key = `${prefix}\u0000${id}`;
     if (visited.has(key)) return;
     visited.add(key);
@@ -498,7 +506,15 @@ async function readCapped(res: Response): Promise<Uint8Array> {
   if (declared > MAX_RESPONSE_BYTES) {
     throw new Error(`response declares ${declared} bytes, over the limit`);
   }
-  if (!res.body) return new Uint8Array(await res.arrayBuffer());
+  if (!res.body) {
+    // No stream to meter, so the only option is to buffer and then check —
+    // but checking is still better than the unbounded return this used to be.
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.length > MAX_RESPONSE_BYTES) {
+      throw new Error(`response exceeded ${MAX_RESPONSE_BYTES} bytes`);
+    }
+    return buf;
+  }
 
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
