@@ -3,3 +3,4 @@ dist
 .astro
 .wrangler
 dist-test
+worker-configuration.d.ts

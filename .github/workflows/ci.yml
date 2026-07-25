@@ -1,0 +1,57 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+# Actions are pinned to full commit SHAs. A mutable tag like @v5 can be
+# retargeted at any time, which would swap out executable CI code without
+# review.
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+
+      # postinstall runs `wrangler types`, which generates
+      # worker-configuration.d.ts. That file is derived from wrangler.jsonc and
+      # would drift silently if committed, so it is generated instead.
+      - run: npm ci
+
+      - run: npx astro check
+      - run: npm run build
+
+  # Single fan-in gate, so branch protection requires one check instead of an
+  # enumerated list that goes stale every time a job is added or renamed. It
+  # also catches *skipped* jobs, which a required check would otherwise treat
+  # as passing.
+  final:
+    permissions: {}
+    needs:
+      - check
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    # Run on success or upstream failure but skip when the workflow is cancelled
+    # — `always()` would override `cancel-in-progress` and waste a runner.
+    if: ${{ !cancelled() }}
+    steps:
+      - name: Check job results
+        if: needs.check.result != 'success'
+        run: exit 1
+      - run: echo "All CI jobs completed successfully"
