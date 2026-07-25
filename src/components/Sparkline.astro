@@ -1,0 +1,159 @@
+---
+/**
+ * A performance series as a small SVG chart.
+ *
+ * Inline SVG rather than a charting library: the page ships zero JavaScript,
+ * and a line with an area fill is not worth 40 KB of runtime.
+ *
+ * The y-axis deliberately does *not* start at zero. These series are flat
+ * plateaus separated by step changes, and a zero-based axis compresses every
+ * interesting movement into a hairline. The axis labels carry the absolute
+ * numbers so nobody misreads the shape as bigger than it is.
+ */
+
+interface Point {
+  ts: string;
+  version: string | null;
+  value: number;
+}
+
+interface Props {
+  points: Point[];
+  label: string;
+  format: (n: number) => string;
+}
+
+const { points, label, format } = Astro.props;
+
+const W = 720;
+const H = 150;
+const PAD = { top: 12, right: 8, bottom: 22, left: 8 };
+
+const values = points.map((p) => p.value);
+const rawLo = Math.min(...values);
+const rawHi = Math.max(...values);
+
+// A perfectly flat series has nothing to scale. Widening the *denominator*
+// alone is not enough — every point still sits at `v - lo === 0` and the line
+// draws along the bottom edge, reading as clipped. Widening the band around the
+// value puts it through the middle, which is what a flat series should look
+// like. A genuinely unchanged benchmark is a good outcome and should not look
+// like a rendering failure.
+const flat = rawHi === rawLo;
+const pad = flat ? Math.max(Math.abs(rawHi) * 0.01, 1) : 0;
+const lo = rawLo - pad;
+const hi = rawHi + pad;
+const span = hi - lo;
+
+const innerW = W - PAD.left - PAD.right;
+const innerH = H - PAD.top - PAD.bottom;
+
+const x = (i: number) =>
+  PAD.left + (points.length === 1 ? innerW / 2 : (i / (points.length - 1)) * innerW);
+const y = (v: number) => PAD.top + innerH - ((v - lo) / span) * innerH;
+
+const line = points.map((p, i) => `${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ");
+const area = `${PAD.left},${PAD.top + innerH} ${line} ${(PAD.left + innerW).toFixed(1)},${PAD.top + innerH}`;
+
+const first = points[0];
+const last = points[points.length - 1];
+const changePct = first.value ? ((last.value - first.value) / first.value) * 100 : 0;
+---
+
+<figure class="chart">
+  <figcaption>
+    <span class="chart-label">{label}</span>
+    <span class="chart-range">
+      {format(rawLo)} – {format(rawHi)}
+      <b class={changePct <= 0 ? "good" : "bad"}>
+        {changePct >= 0 ? "+" : ""}{changePct.toFixed(1)}% overall
+      </b>
+    </span>
+  </figcaption>
+
+  <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${label}: ${format(rawLo)} to ${format(rawHi)}`}>
+    <polygon points={area} class="area" />
+    <polyline points={line} class="line" />
+    {
+      points.map((p, i) => (
+        <circle cx={x(i)} cy={y(p.value)} r="3" class="dot">
+          <title>{`${p.version ?? p.ts.slice(0, 10)} — ${format(p.value)}`}</title>
+        </circle>
+      ))
+    }
+  </svg>
+
+  <div class="chart-axis">
+    <span>{first.version ?? first.ts.slice(0, 10)}</span>
+    <span>{last.version ?? last.ts.slice(0, 10)}</span>
+  </div>
+</figure>
+
+<style>
+  .chart {
+    margin: 0;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: var(--panel);
+    padding: 0.75rem 0.9rem 0.6rem;
+  }
+  figcaption {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.25rem 1rem;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    margin-bottom: 0.4rem;
+  }
+  .chart-label {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .chart-range {
+    color: var(--faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .chart-range b {
+    font-weight: 600;
+    margin-left: 0.5rem;
+  }
+  .good {
+    color: var(--good);
+  }
+  .bad {
+    color: var(--bad);
+  }
+  svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+  .area {
+    fill: color-mix(in srgb, var(--accent) 14%, transparent);
+  }
+  .line {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.75;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+    vector-effect: non-scaling-stroke;
+  }
+  .dot {
+    fill: var(--accent);
+    opacity: 0.55;
+  }
+  .dot:hover {
+    opacity: 1;
+    r: 4;
+  }
+  .chart-axis {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    color: var(--faint);
+  }
+</style>

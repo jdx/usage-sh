@@ -81,8 +81,9 @@ git binary involved. Filtering on `ref-prefix` keeps it tiny. Measured against G
 
 The notes ref SHA doubles as the ETag: it only moves when a new measurement lands.
 
-Reading note *contents* is the remaining work — that needs a packfile fetch and delta
-resolution. Out of band, a plain `git fetch --depth 1` of that single ref returns 100 commits
+Reading note *contents* is one `fetch` command returning a packfile with every note in it —
+implemented in `src/pack.ts`, including `ref_delta` resolution, which is not optional: a real
+fetch of jdx/communique's notes ref returns 21 objects of which 3 are deltas. Out of band, a plain `git fetch --depth 1` of that single ref returns 100 commits
 of history in 36ms / 124K, transferring zero project commit objects, because a notes tree is
 keyed by commit SHA as *path names* and never references the commits it annotates.
 
@@ -120,7 +121,7 @@ secrets, and nobody deploys this from a laptop.
 
 ## Status
 
-Pages render. The interesting half — actually reading the performance data — does not.
+Pages render and performance history charts. The per-person view does not exist yet.
 
 - [x] `/gh/:owner/:repo` + `/ghu/:login` routing over a forge registry
 - [x] any public repo resolves on first hit, no registration
@@ -130,7 +131,7 @@ Pages render. The interesting half — actually reading the performance data —
 - [x] contributors (naive; see the TODO about recency weighting)
 - [x] server-rendered HTML pages (no client bundle)
 - [x] GitHub Actions deploy workflow (deploys only from CI)
-- [ ] reading note contents (packfile fetch + delta resolution)
+- [x] reading note contents — packfile fetch, delta resolution, SVG charts
 - [ ] KDL parsing into a command tree
 - [ ] `/ghu/:login` — needs a prebuilt inverted index
 - [ ] `/badge/:owner/:repo/:metric`

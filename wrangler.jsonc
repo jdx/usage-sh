@@ -39,13 +39,14 @@
     {
       "binding": "DB",
       "database_name": "usage-sh",
-      "database_id": "725d6166-8649-4ee2-8b53-954e840608d6"
+      "database_id": "725d6166-8649-4ee2-8b53-954e840608d6",
+      // Per-binding, not top-level — wrangler warns "Unexpected fields found in
+      // top-level field" otherwise and falls back to the ./migrations default,
+      // which happened to be the same directory. Its own runner tracks applied
+      // files in a `d1_migrations` table; CI applies them after deploy.
+      "migrations_dir": "migrations"
     }
   ],
-
-  // wrangler's own migration runner tracks applied files in a `d1_migrations`
-  // table; `wrangler d1 migrations apply` runs from CI after deploy.
-  "migrations_dir": "migrations",
 
   "observability": {
     "enabled": true,

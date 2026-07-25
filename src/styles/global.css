@@ -202,6 +202,12 @@ tbody tr:last-child td {
   border-bottom: 0;
 }
 
+.charts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
 .people {
   display: flex;
   flex-wrap: wrap;
