@@ -441,7 +441,18 @@ export function readNotesTree(
   const out = new Map<string, string>();
   const dec = new TextDecoder();
 
+  // Git trees form a DAG, not a tree: identical subtrees are stored once and
+  // referenced from many parents. Walking without a visited set revisits each
+  // shared child once per path reaching it, which grows exponentially in the
+  // depth of the layering while the number of distinct objects stays small.
+  // Notes fan out at most two levels in practice, but the pack comes from an
+  // arbitrary public repository and does not have to be well behaved.
+  const visited = new Set<string>();
+
   const walk = (id: string, prefix: string) => {
+    if (visited.has(id)) return;
+    visited.add(id);
+
     const tree = objects.get(id);
     if (!tree || tree.type !== OBJ_TREE) return;
     for (const e of parseTree(tree.data)) {
