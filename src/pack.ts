@@ -265,8 +265,11 @@ const MAX_RESPONSE_BYTES = MAX_PACK_BYTES + 1024 * 1024;
  * that a normal pack costs only a handful of iterations.
  */
 const INFLATE_CHUNK = 64 * 1024;
-/** Notes fan out two levels; anything deeper is not a notes tree. */
-const MAX_TREE_DEPTH = 4;
+/**
+ * Git nests note fanout deeper as the note count grows, so this is set well
+ * beyond anything real rather than at the two levels usually seen.
+ */
+const MAX_TREE_DEPTH = 8;
 /** Ceiling on notes collected from one repository. */
 const MAX_NOTES = 50_000;
 /** Ceiling on tree nodes walked, which `MAX_NOTES` does not bound. */
@@ -468,9 +471,22 @@ export function readNotesTree(
   // ceiling.
   let visits = 0;
 
+  // Every limit throws rather than returning. Stopping quietly would hand back
+  // whatever had been collected so far, and the caller has no way to tell a
+  // truncated walk from a complete one — so the page would chart a partial
+  // history as if it were the whole thing. An incomplete chart presented as
+  // complete is the exact failure this reader exists to prevent; degrading to
+  // "detected, not read" is the honest outcome.
   const walk = (id: string, prefix: string, depth: number) => {
-    if (depth > MAX_TREE_DEPTH || out.size >= MAX_NOTES) return;
-    if (++visits > MAX_TREE_VISITS) return;
+    if (depth > MAX_TREE_DEPTH) {
+      throw new Error(`notes tree deeper than ${MAX_TREE_DEPTH} levels`);
+    }
+    if (out.size >= MAX_NOTES) {
+      throw new Error(`more than ${MAX_NOTES} notes in this repository`);
+    }
+    if (++visits > MAX_TREE_VISITS) {
+      throw new Error(`notes tree walk exceeded ${MAX_TREE_VISITS} nodes`);
+    }
     const key = `${prefix}\u0000${id}`;
     if (visited.has(key)) return;
     visited.add(key);
@@ -483,7 +499,9 @@ export function readNotesTree(
       if (child.type === OBJ_TREE) {
         walk(e.id, prefix + e.name, depth + 1);
       } else if (child.type === OBJ_BLOB) {
-        if (out.size >= MAX_NOTES) return;
+        if (out.size >= MAX_NOTES) {
+          throw new Error(`more than ${MAX_NOTES} notes in this repository`);
+        }
         out.set(prefix + e.name, dec.decode(child.data));
       }
     }
