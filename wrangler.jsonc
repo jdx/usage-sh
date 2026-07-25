@@ -31,8 +31,7 @@
   "kv_namespaces": [
     {
       "binding": "CACHE",
-      // TODO: paste the namespace id from the dashboard before merging.
-      "id": "REPLACE_WITH_KV_NAMESPACE_ID"
+      "id": "e9c42a8c00044d61866484d66bf0d112"
     }
   ],
 
@@ -40,8 +39,7 @@
     {
       "binding": "DB",
       "database_name": "usage-sh",
-      // TODO: paste the database id from the dashboard before merging.
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+      "database_id": "725d6166-8649-4ee2-8b53-954e840608d6"
     }
   ],
 

@@ -33,6 +33,11 @@ const data =
 // Bookkeeping only — the index grows from use rather than registration, which
 // is what makes a per-person view possible later. Deliberately not awaited: it
 // must never delay or fail a render.
+//
+// Only runs on a cache miss, since a Workers Cache hit never executes this
+// Worker at all. `last_seen` therefore lags real traffic by up to the
+// cache-control max-age, which is the correct trade: defeating the cache to
+// keep a timestamp current would cost every reader latency for bookkeeping.
 if (data) {
   Astro.locals.cfContext?.waitUntil(
     recordRepo(runtime.DB, {

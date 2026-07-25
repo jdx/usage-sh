@@ -37,8 +37,14 @@ export async function recordRepo(db: D1Database | undefined, r: SeenRepo): Promi
          ON CONFLICT (forge, owner, name) DO UPDATE SET
            last_seen = excluded.last_seen,
            stars     = excluded.stars,
-           has_tak   = excluded.has_tak,
-           has_spec  = excluded.has_spec`,
+           -- Monotonic on purpose. A page render cannot tell "this repo has no
+           -- tak data" from "that probe just failed", because both arrive as
+           -- null, so writing 0 here would clear a flag on any transient error
+           -- and quietly corrupt the partial index. Erring toward stale-true is
+           -- the right failure for a discovery index; a reconciliation job can
+           -- clear flags deliberately, with evidence.
+           has_tak   = MAX(repos.has_tak, excluded.has_tak),
+           has_spec  = MAX(repos.has_spec, excluded.has_spec)`,
       )
       .bind(
         r.forge,

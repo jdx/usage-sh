@@ -10,6 +10,8 @@ on:
       - "src/**"
       - "astro.config.mjs"
       - "wrangler.jsonc"
+      # A commit that only adds SQL still has to reach the migration step.
+      - "migrations/**"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/deploy.yml"
