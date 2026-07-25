@@ -146,23 +146,46 @@ export function applyDelta(base: Uint8Array, delta: Uint8Array): Uint8Array {
   const out = new Uint8Array(targetSize);
   let outPos = 0;
 
+  // Every read is bounds-checked. `Uint8Array.subarray` clamps out-of-range
+  // indices rather than throwing, and an out-of-bounds `delta[pos++]` yields
+  // undefined which the bitwise ops coerce to 0 — so without these a corrupt
+  // delta produces silently zero-filled output that still satisfies the
+  // `outPos === targetSize` check at the end. Wrong data that looks valid is
+  // the one outcome this file exists to avoid.
+  const byteAt = (i: number): number => {
+    if (i >= delta.length) throw new Error("delta ended mid-instruction");
+    return delta[i];
+  };
+
   while (pos < delta.length) {
     const op = delta[pos++];
     if (op & 0x80) {
       let copyOffset = 0;
       let copySize = 0;
-      if (op & 0x01) copyOffset |= delta[pos++];
-      if (op & 0x02) copyOffset |= delta[pos++] << 8;
-      if (op & 0x04) copyOffset |= delta[pos++] << 16;
-      if (op & 0x08) copyOffset |= delta[pos++] << 24;
-      if (op & 0x10) copySize |= delta[pos++];
-      if (op & 0x20) copySize |= delta[pos++] << 8;
-      if (op & 0x40) copySize |= delta[pos++] << 16;
+      if (op & 0x01) copyOffset |= byteAt(pos++);
+      if (op & 0x02) copyOffset |= byteAt(pos++) << 8;
+      if (op & 0x04) copyOffset |= byteAt(pos++) << 16;
+      if (op & 0x08) copyOffset |= byteAt(pos++) << 24;
+      if (op & 0x10) copySize |= byteAt(pos++);
+      if (op & 0x20) copySize |= byteAt(pos++) << 8;
+      if (op & 0x40) copySize |= byteAt(pos++) << 16;
       // A zero size means 0x10000, an encoding quirk that is easy to miss.
       if (copySize === 0) copySize = 0x10000;
+      if (copyOffset + copySize > base.length) {
+        throw new Error("delta copies past the end of its base");
+      }
+      if (outPos + copySize > targetSize) {
+        throw new Error("delta writes past its declared target size");
+      }
       out.set(base.subarray(copyOffset, copyOffset + copySize), outPos);
       outPos += copySize;
     } else if (op !== 0) {
+      if (pos + op > delta.length) {
+        throw new Error("delta insert runs past the end of the delta");
+      }
+      if (outPos + op > targetSize) {
+        throw new Error("delta writes past its declared target size");
+      }
       out.set(delta.subarray(pos, pos + op), outPos);
       outPos += op;
       pos += op;
@@ -198,6 +221,11 @@ const MAX_OBJECTS = 20_000;
 const MAX_RESPONSE_BYTES = MAX_PACK_BYTES + 1024 * 1024;
 /** A single object big enough to blow the budget on its own. */
 const MAX_OBJECT_BYTES = 4 * 1024 * 1024;
+/**
+ * Every decoded object is retained until parsing finishes, so the per-object
+ * cap is not enough on its own: many individually-legal objects still add up.
+ */
+const MAX_TOTAL_DECODED_BYTES = 32 * 1024 * 1024;
 
 export async function parsePack(pack: Uint8Array): Promise<Map<string, GitObject>> {
   if (String.fromCharCode(...pack.subarray(0, 4)) !== "PACK") {
@@ -216,6 +244,14 @@ export async function parsePack(pack: Uint8Array): Promise<Map<string, GitObject
   const byOffset = new Map<number, GitObject>();
   type Pending = { offset: number; baseRef: string | number; delta: Uint8Array };
   const pending: Pending[] = [];
+
+  let decoded = 0;
+  const account = (n: number) => {
+    decoded += n;
+    if (decoded > MAX_TOTAL_DECODED_BYTES) {
+      throw new Error(`decoded data exceeded ${MAX_TOTAL_DECODED_BYTES} bytes`);
+    }
+  };
 
   let pos = 12;
   for (let n = 0; n < count; n++) {
@@ -251,6 +287,7 @@ export async function parsePack(pack: Uint8Array): Promise<Map<string, GitObject
     if (out.length > MAX_OBJECT_BYTES) {
       throw new Error(`object inflates to ${out.length} bytes, over the limit`);
     }
+    account(out.length);
 
     if (baseRef === null) {
       const obj: GitObject = { type, data: out };
@@ -261,30 +298,45 @@ export async function parsePack(pack: Uint8Array): Promise<Map<string, GitObject
     }
   }
 
-  // Resolve deltas, repeating while progress is being made.
-  let remaining = pending;
-  while (remaining.length) {
-    const stuck: Pending[] = [];
-    for (const p of remaining) {
-      const base =
-        typeof p.baseRef === "number"
-          ? byOffset.get(p.baseRef)
-          : byId.get(p.baseRef);
-      if (!base) {
-        stuck.push(p);
-        continue;
-      }
-      const obj: GitObject = {
-        type: base.type,
-        data: applyDelta(base.data, p.delta),
-      };
-      byOffset.set(p.offset, obj);
-      byId.set(await objectId(obj.type, obj.data), obj);
+  // Resolve deltas by following dependencies forward rather than rescanning.
+  //
+  // The obvious loop — sweep the pending list, retry whatever is still stuck —
+  // is quadratic, and a reverse-ordered delta chain drives it to its worst
+  // case: within the 20k object cap that is ~200M checks, which exhausts the
+  // CPU budget before any graceful degradation runs. Indexing each delta under
+  // the base it waits on makes resolution linear: settling an object wakes
+  // exactly the deltas that were blocked on it.
+  const waiting = new Map<string | number, Pending[]>();
+  for (const p of pending) {
+    const list = waiting.get(p.baseRef);
+    if (list) list.push(p);
+    else waiting.set(p.baseRef, [p]);
+  }
+
+  const settle = async (key: string | number, obj: GitObject): Promise<void> => {
+    const queue = waiting.get(key);
+    if (!queue) return;
+    waiting.delete(key);
+    for (const p of queue) {
+      const data = applyDelta(obj.data, p.delta);
+      account(data.length);
+      const resolved: GitObject = { type: obj.type, data };
+      byOffset.set(p.offset, resolved);
+      const id = await objectId(resolved.type, resolved.data);
+      byId.set(id, resolved);
+      // A delta can itself be the base for another, so cascade both ways it
+      // may have been referenced.
+      await settle(p.offset, resolved);
+      await settle(id, resolved);
     }
-    if (stuck.length === remaining.length) {
-      throw new Error(`${stuck.length} delta(s) reference a missing base`);
-    }
-    remaining = stuck;
+  };
+
+  for (const [offset, obj] of [...byOffset]) await settle(offset, obj);
+  for (const [id, obj] of [...byId]) await settle(id, obj);
+
+  if (waiting.size) {
+    const orphans = [...waiting.values()].reduce((n, v) => n + v.length, 0);
+    throw new Error(`${orphans} delta(s) reference a missing base`);
   }
 
   return byId;

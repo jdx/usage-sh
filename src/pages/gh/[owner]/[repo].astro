@@ -156,7 +156,7 @@ const fmtMs = (n: number) => `${n.toFixed(2)}ms`;
             {perfSeries.map(({ s, pts, metric }) => (
               <Sparkline
                 points={pts}
-                label={`${s.bench} · ${metric} · ${s.runner}`}
+                label={`${s.bench} · ${s.tool} · ${metric} · ${s.runner}`}
                 format={metric === "instructions" ? fmtInt : fmtMs}
               />
             ))}

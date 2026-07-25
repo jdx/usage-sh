@@ -190,16 +190,6 @@ async function miseReleases(toolName: string): Promise<Versions | null> {
   return { source: "mise-versions", releases };
 }
 
-/**
- * Performance history from `refs/notes/tak`.
- *
- * Detection is cheap: git smart HTTP v2 `ls-refs` is an ordinary POST, so no git
- * binary and no origin service — 64 bytes for a repo that has the ref, 4 for one
- * that does not. Reading note *contents* needs a packfile fetch and delta
- * resolution, which is the remaining work. Until then we report presence and the
- * ref SHA, which decides whether the section has anything and doubles as its
- * cache key.
- */
 /** Highest schema version this reader understands. */
 const MAX_RECORD_V = 1;
 
@@ -256,7 +246,14 @@ export function parseNote(body: string): TakRecord[] {
         typeof r.tool === "string" &&
         typeof r.runner === "string" &&
         r.metrics !== null &&
-        typeof r.metrics === "object"
+        typeof r.metrics === "object" &&
+        // Values are checked, not just the container. A non-numeric metric
+        // survives every other guard and then reaches Math.min/Math.max in the
+        // chart as NaN, which breaks the SVG silently — exactly the outcome the
+        // rest of this parser skips lines to avoid.
+        Object.values(r.metrics as Record<string, unknown>).every(
+          (v) => typeof v === "number" && Number.isFinite(v),
+        )
       ) {
         out.push(r);
       }
