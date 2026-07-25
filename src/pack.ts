@@ -104,8 +104,6 @@ function inflateAt(data: Uint8Array, offset: number): {
   inflator.onData = (chunk: Uint8Array) => {
     size += chunk.length;
     if (size > MAX_OBJECT_BYTES) {
-      // pako has no way to stop mid-stream, so drop what we have and refuse
-      // to keep accumulating. The allocation stays bounded either way.
       overflowed = true;
       parts.length = 0;
       return;
@@ -113,20 +111,27 @@ function inflateAt(data: Uint8Array, offset: number): {
     parts.push(chunk);
   };
 
-  inflator.push(data.subarray(offset));
-  if (overflowed) {
-    throw new Error(`object inflates past ${MAX_OBJECT_BYTES} bytes`);
+  // Input is fed in slices rather than in one call. `push` inflates everything
+  // it is given before returning, so handing it the whole remainder would
+  // decompress a zip-bomb in full — dropping the output in `onData` bounds
+  // memory but not the CPU spent producing it. Feeding slices lets the overflow
+  // check run between them and abandon the rest of the stream.
+  const input = data.subarray(offset);
+  let consumed = 0;
+  for (let at = 0; at < input.length; at += INFLATE_CHUNK) {
+    const slice = input.subarray(at, Math.min(at + INFLATE_CHUNK, input.length));
+    inflator.push(slice);
+    if (inflator.err) {
+      throw new Error(`inflate failed at ${offset}: ${inflator.msg}`);
+    }
+    // `next_in` is an offset within the slice just pushed, so it accumulates.
+    consumed += (inflator as unknown as { strm: { next_in: number } }).strm.next_in;
+    if (overflowed) {
+      throw new Error(`object inflates past ${MAX_OBJECT_BYTES} bytes`);
+    }
+    // Set once the zlib trailer is reached; the next object starts here.
+    if (inflator.ended) break;
   }
-  if (inflator.err) {
-    throw new Error(`inflate failed at ${offset}: ${inflator.msg}`);
-  }
-  // `next_in` is where pako stopped reading — the only reliable way to locate
-  // the following object in a stream of concatenated zlib blobs. It is marked
-  // private in the typings but is load-bearing here.
-  const { next_in: consumed } = (
-    inflator as unknown as { strm: { next_in: number } }
-  ).strm;
-
   const out = new Uint8Array(size);
   let at = 0;
   for (const c of parts) {
@@ -253,6 +258,13 @@ const MAX_PACK_BYTES = 8 * 1024 * 1024;
 const MAX_OBJECTS = 20_000;
 /** Sideband framing adds a little over the pack itself. */
 const MAX_RESPONSE_BYTES = MAX_PACK_BYTES + 1024 * 1024;
+/**
+ * How much compressed input to hand pako at a time.
+ *
+ * Small enough that a pathological object is abandoned quickly, large enough
+ * that a normal pack costs only a handful of iterations.
+ */
+const INFLATE_CHUNK = 64 * 1024;
 /** Upper bound on how long one repository may hold the request open. */
 const FETCH_TIMEOUT_MS = 10_000;
 /** A single object big enough to blow the budget on its own. */
@@ -517,9 +529,11 @@ export async function fetchNotes(
     // Without this a slow or hanging remote holds the Worker until the runtime
     // kills it, losing the whole page rather than just this section.
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    // Keyed on the notes sha by the caller, so this only refetches when the
-    // ref actually moves.
-    cf: { cacheTtl: 3600, cacheEverything: true },
+    // Deliberately uncached. The wanted sha travels in the *body*, while the
+    // URL is identical for every request to a repo — so caching by URL would
+    // serve one commit's pack for another sha's request, silently charting
+    // stale measurements. The rendered page is cached instead, keyed on its own
+    // URL, which is where caching belongs.
   } as RequestInit);
   if (!res.ok) throw new Error(`git-upload-pack returned ${res.status}`);
 
