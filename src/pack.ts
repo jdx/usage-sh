@@ -138,6 +138,11 @@ export function applyDelta(base: Uint8Array, delta: Uint8Array): Uint8Array {
   const { value: targetSize, pos: p2 } = varint(delta, pos);
   pos = p2;
 
+  // The target size is attacker-controlled and is allocated up front, so it is
+  // checked before the allocation rather than after.
+  if (targetSize > MAX_OBJECT_BYTES) {
+    throw new Error(`delta target is ${targetSize} bytes, over the limit`);
+  }
   const out = new Uint8Array(targetSize);
   let outPos = 0;
 
@@ -189,6 +194,10 @@ export function applyDelta(base: Uint8Array, delta: Uint8Array): Uint8Array {
  */
 const MAX_PACK_BYTES = 8 * 1024 * 1024;
 const MAX_OBJECTS = 20_000;
+/** Sideband framing adds a little over the pack itself. */
+const MAX_RESPONSE_BYTES = MAX_PACK_BYTES + 1024 * 1024;
+/** A single object big enough to blow the budget on its own. */
+const MAX_OBJECT_BYTES = 4 * 1024 * 1024;
 
 export async function parsePack(pack: Uint8Array): Promise<Map<string, GitObject>> {
   if (String.fromCharCode(...pack.subarray(0, 4)) !== "PACK") {
@@ -237,6 +246,11 @@ export async function parsePack(pack: Uint8Array): Promise<Map<string, GitObject
 
     const { out, consumed } = inflateAt(pack, pos);
     pos += consumed;
+    // Guards the highly-compressed case: a small pack can inflate to something
+    // that will not fit in the Worker's budget.
+    if (out.length > MAX_OBJECT_BYTES) {
+      throw new Error(`object inflates to ${out.length} bytes, over the limit`);
+    }
 
     if (baseRef === null) {
       const obj: GitObject = { type, data: out };
@@ -349,6 +363,44 @@ export function readNotesTree(
 }
 
 /**
+ * Read a response body, refusing to buffer more than the cap.
+ *
+ * `Content-Length` is not enough: a chunked reply omits it entirely, and
+ * `arrayBuffer()` on an unbounded body is the one step no later limit can
+ * rescue. Reading the stream and counting as it arrives bounds the allocation
+ * whatever the sender declares.
+ */
+async function readCapped(res: Response): Promise<Uint8Array> {
+  const declared = Number(res.headers.get("content-length") ?? 0);
+  if (declared > MAX_RESPONSE_BYTES) {
+    throw new Error(`response declares ${declared} bytes, over the limit`);
+  }
+  if (!res.body) return new Uint8Array(await res.arrayBuffer());
+
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > MAX_RESPONSE_BYTES) {
+      await reader.cancel();
+      throw new Error(`response exceeded ${MAX_RESPONSE_BYTES} bytes`);
+    }
+    chunks.push(value);
+  }
+
+  const out = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) {
+    out.set(c, off);
+    off += c.length;
+  }
+  return out;
+}
+
+/**
  * Fetch every note under `notesSha` as commit id -> note body.
  *
  * `deepen 1` keeps this to the tip commit's own tree: the history of the notes
@@ -383,16 +435,7 @@ export async function fetchNotes(
   } as RequestInit);
   if (!res.ok) throw new Error(`git-upload-pack returned ${res.status}`);
 
-  // Checked before buffering: `arrayBuffer()` on an unbounded body is the one
-  // step that can exhaust memory before any limit inside parsePack applies.
-  const declared = Number(res.headers.get("content-length") ?? 0);
-  if (declared > MAX_PACK_BYTES) {
-    throw new Error(`response is ${declared} bytes, over the ${MAX_PACK_BYTES} limit`);
-  }
-
-  const objects = await parsePack(
-    extractPack(new Uint8Array(await res.arrayBuffer())),
-  );
+  const objects = await parsePack(extractPack(await readCapped(res)));
   const commit = objects.get(notesSha);
   if (!commit) throw new Error("notes commit missing from pack");
   return readNotesTree(objects, commitTree(commit.data));
