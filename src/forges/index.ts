@@ -19,6 +19,8 @@
  * from `/gh/:owner/:repo` — both are three segments.
  */
 
+import type { Spec } from "../spec";
+
 export interface RepoMeta {
   full_name: string;
   description: string | null;
@@ -46,6 +48,8 @@ export interface Contributor {
 export interface SpecFile {
   file: string;
   raw: string;
+  /** Parsed command tree, or null when the spec could not be parsed. */
+  spec: Spec | null;
 }
 
 export interface ForgeCtx {

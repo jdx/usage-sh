@@ -5,6 +5,7 @@
  * that is plain git protocol and works against any host (see `../git.ts`).
  */
 
+import { parseSpec } from "../spec";
 import type {
   Contributor,
   Forge,
@@ -76,8 +77,10 @@ export const github: Forge = {
       cf: { cacheTtl: 600, cacheEverything: true },
     });
     if (!body.ok) return null;
-    // TODO: parse KDL into a command tree. Raw for now.
-    return { file: spec.name, raw: await body.text() };
+    const raw = await body.text();
+    // A spec that will not parse still shows its source, so a syntax error
+    // upstream degrades the Commands tab rather than emptying the page.
+    return { file: spec.name, raw, spec: parseSpec(raw) };
   },
 
   async releases(owner, repo, ctx): Promise<Release[] | null> {
