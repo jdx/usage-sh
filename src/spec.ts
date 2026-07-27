@@ -259,10 +259,30 @@ export function parseSpec(source: string): Spec | null {
   };
 }
 
-/** Depth-first walk of every command, including nested ones. */
+/** Depth-first walk of every command, including hidden and nested ones. */
 export function walkCommands(spec: Spec): SpecCommand[] {
   const out: SpecCommand[] = [];
   const visit = (c: SpecCommand) => {
+    out.push(c);
+    c.subcommands.forEach(visit);
+  };
+  spec.commands.forEach(visit);
+  return out;
+}
+
+/**
+ * Commands a user is meant to see: hidden ones, and everything beneath them.
+ *
+ * Filtering `walkCommands` on `hide` alone is not the same thing. clap does
+ * not propagate `hide` to subcommands, so a hidden parent routinely has
+ * visible children — `mise bootstrap launchd` is hidden while its `apply` and
+ * `status` are not — and a flat filter would surface the child along with the
+ * hidden path it sits under.
+ */
+export function visibleCommands(spec: Spec): SpecCommand[] {
+  const out: SpecCommand[] = [];
+  const visit = (c: SpecCommand) => {
+    if (c.hide) return;
     out.push(c);
     c.subcommands.forEach(visit);
   };

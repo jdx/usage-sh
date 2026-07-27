@@ -9,7 +9,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { findCommand, parseSpec, walkCommands } from "./spec.ts";
+import {
+  findCommand,
+  parseSpec,
+  visibleCommands,
+  walkCommands,
+} from "./spec.ts";
 
 test("reads the document header", () => {
   const spec = parseSpec(`
@@ -184,6 +189,30 @@ cmd "y" {
   const cmd = findCommand(spec, ["y"])!;
   assert.equal(cmd.flags.length, 1);
   assert.equal(cmd.flags[0].name, "real");
+});
+
+test("visibleCommands prunes hidden subtrees, not just hidden commands", () => {
+  // clap does not propagate `hide` to subcommands, so a hidden parent with
+  // visible children is normal — mise ships six of them. Filtering a flat walk
+  // on `hide` would surface the child and the hidden path it sits under.
+  const spec = parseSpec(`
+bin "x"
+cmd "shown" {
+  cmd "child"
+}
+cmd "internal" hide=#true {
+  cmd "apply"
+  cmd "status"
+}
+`)!;
+  assert.deepEqual(
+    walkCommands(spec).map((c) => c.path.join(" ")),
+    ["shown", "shown child", "internal", "internal apply", "internal status"],
+  );
+  assert.deepEqual(
+    visibleCommands(spec).map((c) => c.path.join(" ")),
+    ["shown", "shown child"],
+  );
 });
 
 test("returns null for a document that is not KDL", () => {
