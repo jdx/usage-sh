@@ -6,6 +6,7 @@ import Sparkline from "../../../components/Sparkline.astro";
 import { github } from "../../../forges/github";
 import { recordRepo } from "../../../lib/db";
 import { repoData } from "../../../lib/data";
+import { walkCommands } from "../../../spec";
 
 const { owner, repo } = Astro.params;
 
@@ -132,11 +133,59 @@ const fmtMs = (n: number) => `${n.toFixed(2)}ms`;
   <section>
     <h2>Commands</h2>
     {
-      data.commands ? (
+      data.commands?.spec ? (
         <>
-          {/* TODO: parse KDL into a command tree instead of showing source. */}
-          <div class="card"><pre>{data.commands.raw.slice(0, 8000)}</pre></div>
-          <div class="facts"><span>from <b>{data.commands.file}</b></span></div>
+          <div class="card scroll">
+            <table>
+              <thead>
+                <tr><th>Command</th><th>Effect</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                {walkCommands(data.commands.spec)
+                  .filter((c) => !c.hide)
+                  .map((c) => (
+                    <tr>
+                      <td>
+                        <code>
+                          {[data.commands!.spec!.bin, ...c.path]
+                            .filter(Boolean)
+                            .join(" ")}
+                        </code>
+                      </td>
+                      <td>
+                        {c.effect ? (
+                          <span class={`effect ${c.effect}`}>{c.effect}</span>
+                        ) : (
+                          <span class="m">—</span>
+                        )}
+                      </td>
+                      <td>{c.help ?? ""}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+          <div class="facts">
+            <span>
+              from <b>{data.commands.file}</b>
+            </span>
+            <span>
+              <b>{walkCommands(data.commands.spec).filter((c) => !c.hide).length}</b>{" "}
+              commands
+            </span>
+            {data.commands.spec.minUsageVersion && (
+              <span>
+                needs usage <b>{data.commands.spec.minUsageVersion}</b>
+              </span>
+            )}
+          </div>
+        </>
+      ) : data.commands ? (
+        <>
+          <div class="warn">
+            <code>{data.commands.file}</code> could not be parsed as a usage spec.
+          </div>
+          <div class="card scroll"><pre>{data.commands.raw.slice(0, 8000)}</pre></div>
         </>
       ) : (
         <div class="empty">
