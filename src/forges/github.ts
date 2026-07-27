@@ -124,6 +124,24 @@ export const github: Forge = {
 
     const jobs: Array<Promise<Skill | null>> = [];
 
+    // A single unnamed skill at `skills/SKILL.md`. Not the spec layout, but by
+    // far the most common shape in the wild. Taken from the listing, so the
+    // casing is whatever the repo used and nothing is guessed. Counted against
+    // the cap first, since it costs a fetch like any other.
+    const loose = entries.find(
+      (e) => e.type === "file" && /^skill\.md$/i.test(e.name),
+    );
+    if (loose) {
+      const path = `skills/${loose.name}`;
+      jobs.push(
+        (async () => {
+          const source = await fetchText(path);
+          // No directory to name it after, so fall back to the repo.
+          return source ? parseSkill(path, repo, source) : null;
+        })(),
+      );
+    }
+
     // The spec layout. `SKILL.md` is the spelling it defines; some repos use
     // `skill.md`, so fall back rather than miss them — one extra request, and
     // only for a directory that did not have the documented name.
@@ -131,32 +149,19 @@ export const github: Forge = {
       .filter((e) => e.type === "dir")
       .map((e) => e.name)
       .sort()
-      .slice(0, MAX_SKILLS)) {
+      .slice(0, MAX_SKILLS - jobs.length)) {
       jobs.push(
         (async () => {
-          const base = `skills/${encodeURIComponent(dir)}`;
-          const source =
-            (await fetchText(`${base}/SKILL.md`)) ??
-            (await fetchText(`${base}/skill.md`));
-          return source ? parseSkill(`${base}/SKILL.md`, dir, source) : null;
-        })(),
-      );
-    }
-
-    // A single unnamed skill at `skills/SKILL.md`. Not the spec layout, but by
-    // far the most common shape in the wild, and the two clearest end-user CLI
-    // skills I could find both use it. Taken from the listing, so the casing
-    // is whatever the repo actually used and nothing is guessed.
-    const loose = entries.find(
-      (e) => e.type === "file" && /^skill\.md$/i.test(e.name),
-    );
-    if (loose) {
-      jobs.push(
-        (async () => {
-          const path = `skills/${loose.name}`;
-          const source = await fetchText(path);
-          // No directory to name it after, so fall back to the repo.
-          return source ? parseSkill(path, repo, source) : null;
+          for (const file of ["SKILL.md", "skill.md"]) {
+            // `path` is the literal repo path, for display and for linking;
+            // only the request URL is encoded.
+            const path = `skills/${dir}/${file}`;
+            const source = await fetchText(
+              `skills/${encodeURIComponent(dir)}/${file}`,
+            );
+            if (source) return parseSkill(path, dir, source);
+          }
+          return null;
         })(),
       );
     }

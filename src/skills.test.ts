@@ -138,6 +138,29 @@ test("a loose skills/SKILL.md falls back to the repo name", () => {
   assert.equal(s.path, "skills/skill.md");
 });
 
+test("the path records the file that was actually read", () => {
+  // The fallback to `skill.md` must not claim `SKILL.md`, or the page links
+  // to a file that is not in the repo.
+  const s = parseSkill(
+    "skills/ui/skill.md",
+    "ui",
+    `---\nname: ui\ndescription: d\n---\nbody`,
+  )!;
+  assert.equal(s.path, "skills/ui/skill.md");
+});
+
+test("the path is literal, not percent-encoded", () => {
+  // Encoding belongs in the request URL; the model is what gets displayed
+  // and linked, so a Unicode directory name must survive intact.
+  const s = parseSkill(
+    "skills/日本語/SKILL.md",
+    "日本語",
+    `---\ndescription: d\n---\nbody`,
+  )!;
+  assert.equal(s.path, "skills/日本語/SKILL.md");
+  assert.equal(s.name, "日本語");
+});
+
 test("rejects a whitespace-only description", () => {
   // The spec requires a non-empty description; quotes made this look present.
   assert.equal(parseSkill(
