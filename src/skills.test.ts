@@ -10,6 +10,7 @@ import { parseSkill } from "./skills.ts";
 
 test("reads the required fields", () => {
   const s = parseSkill(
+    "skills/pdf-processing/SKILL.md",
     "pdf-processing",
     `---
 name: pdf-processing
@@ -21,7 +22,7 @@ description: Extract PDF text and fill forms. Use when handling PDFs.
 Body text.
 `,
   )!;
-  assert.equal(s.dir, "pdf-processing");
+  assert.equal(s.path, "skills/pdf-processing/SKILL.md");
   assert.equal(s.name, "pdf-processing");
   assert.match(s.description, /Extract PDF text/);
   assert.match(s.body, /^# PDF processing/);
@@ -29,6 +30,7 @@ Body text.
 
 test("reads the optional fields the spec defines", () => {
   const s = parseSkill(
+    "skills/x/SKILL.md",
     "x",
     `---
 name: x
@@ -47,6 +49,7 @@ body
 
 test("handles quoted values", () => {
   const s = parseSkill(
+    "skills/x/SKILL.md",
     "x",
     `---
 name: "x"
@@ -60,6 +63,7 @@ description: 'Uses: colons, and commas'
 
 test("handles a folded description", () => {
   const s = parseSkill(
+    "skills/x/SKILL.md",
     "x",
     `---
 name: x
@@ -77,6 +81,7 @@ description: >
 
 test("handles a literal block, keeping its newlines", () => {
   const s = parseSkill(
+    "skills/x/SKILL.md",
     "x",
     `---
 name: x
@@ -92,6 +97,7 @@ description: |
 test("skips nested structures it does not model", () => {
   // `metadata` is an arbitrary map; its keys must not leak into the fields.
   const s = parseSkill(
+    "skills/x/SKILL.md",
     "x",
     `---
 name: x
@@ -106,32 +112,81 @@ description: after the nested block
   assert.equal(s.name, "x");
 });
 
-test("falls back to the directory name when name is absent", () => {
-  const s = parseSkill("from-dir", `---\ndescription: d\n---\n`)!;
+test("falls back to the given name when the field is absent", () => {
+  const s = parseSkill(
+    "skills/from-dir/SKILL.md",
+    "from-dir", `---\ndescription: d\n---\n`)!;
   assert.equal(s.name, "from-dir");
 });
 
 test("rejects a file with no description", () => {
   // The spec requires it, and without one there is nothing worth listing.
-  assert.equal(parseSkill("x", `---\nname: x\n---\nbody`), null);
+  assert.equal(parseSkill(
+    "skills/x/SKILL.md",
+    "x", `---\nname: x\n---\nbody`), null);
+});
+
+test("a loose skills/SKILL.md falls back to the repo name", () => {
+  // Not the spec layout, but the most common shape in the wild; there is no
+  // directory to take a name from, so the repo stands in.
+  const s = parseSkill(
+    "skills/skill.md",
+    "excalidraw-cli",
+    `---\ndescription: Create diagrams from JSON\n---\nbody`,
+  )!;
+  assert.equal(s.name, "excalidraw-cli");
+  assert.equal(s.path, "skills/skill.md");
+});
+
+test("the path records the file that was actually read", () => {
+  // The fallback to `skill.md` must not claim `SKILL.md`, or the page links
+  // to a file that is not in the repo.
+  const s = parseSkill(
+    "skills/ui/skill.md",
+    "ui",
+    `---\nname: ui\ndescription: d\n---\nbody`,
+  )!;
+  assert.equal(s.path, "skills/ui/skill.md");
+});
+
+test("the path is literal, not percent-encoded", () => {
+  // Encoding belongs in the request URL; the model is what gets displayed
+  // and linked, so a Unicode directory name must survive intact.
+  const s = parseSkill(
+    "skills/日本語/SKILL.md",
+    "日本語",
+    `---\ndescription: d\n---\nbody`,
+  )!;
+  assert.equal(s.path, "skills/日本語/SKILL.md");
+  assert.equal(s.name, "日本語");
 });
 
 test("rejects a whitespace-only description", () => {
   // The spec requires a non-empty description; quotes made this look present.
-  assert.equal(parseSkill("x", `---\nname: x\ndescription: "   "\n---\nbody`), null);
-  assert.equal(parseSkill("x", `---\nname: x\ndescription: |\n   \n---\nbody`), null);
+  assert.equal(parseSkill(
+    "skills/x/SKILL.md",
+    "x", `---\nname: x\ndescription: "   "\n---\nbody`), null);
+  assert.equal(parseSkill(
+    "skills/x/SKILL.md",
+    "x", `---\nname: x\ndescription: |\n   \n---\nbody`), null);
 });
 
 test("rejects a file with no frontmatter", () => {
-  assert.equal(parseSkill("x", "# Just markdown\n"), null);
+  assert.equal(parseSkill(
+    "skills/x/SKILL.md",
+    "x", "# Just markdown\n"), null);
 });
 
 test("rejects an unterminated frontmatter block", () => {
-  assert.equal(parseSkill("x", "---\nname: x\ndescription: d\n"), null);
+  assert.equal(parseSkill(
+    "skills/x/SKILL.md",
+    "x", "---\nname: x\ndescription: d\n"), null);
 });
 
 test("tolerates CRLF line endings", () => {
-  const s = parseSkill("x", "---\r\nname: x\r\ndescription: d\r\n---\r\nbody\r\n")!;
+  const s = parseSkill(
+    "skills/x/SKILL.md",
+    "x", "---\r\nname: x\r\ndescription: d\r\n---\r\nbody\r\n")!;
   assert.equal(s.description, "d");
   assert.equal(s.body, "body");
 });

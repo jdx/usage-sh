@@ -13,8 +13,12 @@
 
 /** The frontmatter fields the spec defines. `metadata` is deliberately not read. */
 export interface Skill {
-  /** Directory name, which the spec requires to match the `name` field. */
-  dir: string;
+  /**
+   * Repo-relative path to the file, so the page can link to the real thing.
+   * `skills/<name>/SKILL.md` for the spec layout, `skills/SKILL.md` for a
+   * repo that publishes a single unnamed skill.
+   */
+  path: string;
   name: string;
   description: string;
   license?: string;
@@ -88,17 +92,22 @@ function parseFrontmatter(src: string): {
 /**
  * Build a Skill from one `SKILL.md`, or null when it is not usable.
  *
- * `name` and `description` are the spec's only required fields, and without a
- * description there is nothing worth listing, so both are required here too.
+ * `description` is required: the spec says so, and without one there is
+ * nothing worth listing. `name` falls back to `fallbackName`, which is the
+ * containing directory for the spec layout and the repo for a loose file.
  */
-export function parseSkill(dir: string, source: string): Skill | null {
+export function parseSkill(
+  path: string,
+  fallbackName: string,
+  source: string,
+): Skill | null {
   const { fields, body } = parseFrontmatter(source);
-  const name = fields.name ?? dir;
+  const name = fields.name ?? fallbackName;
   const description = fields.description;
   if (!description) return null;
 
   return {
-    dir,
+    path,
     name,
     description,
     license: fields.license,

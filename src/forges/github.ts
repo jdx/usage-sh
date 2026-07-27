@@ -115,25 +115,58 @@ export const github: Forge = {
     const entries = (await res.json()) as Array<{ name: string; type: string }>;
     if (!Array.isArray(entries)) return null;
 
-    const dirs = entries
+    const fetchText = async (path: string): Promise<string | null> => {
+      const r = await fetch(`${RAW}/${owner}/${repo}/HEAD/${path}`, {
+        cf: { cacheTtl: 600, cacheEverything: true },
+      }).catch(() => null);
+      return r?.ok ? await r.text() : null;
+    };
+
+    const jobs: Array<Promise<Skill | null>> = [];
+
+    // A single unnamed skill at `skills/SKILL.md`. Not the spec layout, but by
+    // far the most common shape in the wild. Taken from the listing, so the
+    // casing is whatever the repo used and nothing is guessed. Counted against
+    // the cap first, since it costs a fetch like any other.
+    const loose = entries.find(
+      (e) => e.type === "file" && /^skill\.md$/i.test(e.name),
+    );
+    if (loose) {
+      const path = `skills/${loose.name}`;
+      jobs.push(
+        (async () => {
+          const source = await fetchText(path);
+          // No directory to name it after, so fall back to the repo.
+          return source ? parseSkill(path, repo, source) : null;
+        })(),
+      );
+    }
+
+    // The spec layout. `SKILL.md` is the spelling it defines; some repos use
+    // `skill.md`, so fall back rather than miss them — one extra request, and
+    // only for a directory that did not have the documented name.
+    for (const dir of entries
       .filter((e) => e.type === "dir")
       .map((e) => e.name)
       .sort()
-      .slice(0, MAX_SKILLS);
+      .slice(0, MAX_SKILLS - jobs.length)) {
+      jobs.push(
+        (async () => {
+          for (const file of ["SKILL.md", "skill.md"]) {
+            // `path` is the literal repo path, for display and for linking;
+            // only the request URL is encoded.
+            const path = `skills/${dir}/${file}`;
+            const source = await fetchText(
+              `skills/${encodeURIComponent(dir)}/${file}`,
+            );
+            if (source) return parseSkill(path, dir, source);
+          }
+          return null;
+        })(),
+      );
+    }
 
-    const loaded = await Promise.all(
-      dirs.map(async (dir) => {
-        const body = await fetch(
-          `${RAW}/${owner}/${repo}/HEAD/skills/${encodeURIComponent(dir)}/SKILL.md`,
-          { cf: { cacheTtl: 600, cacheEverything: true } },
-        ).catch(() => null);
-        if (!body?.ok) return null;
-        // A skill whose frontmatter cannot be read is skipped rather than
-        // shown half-parsed; it is someone else's file, not ours to guess at.
-        return parseSkill(dir, await body.text());
-      }),
-    );
-
+    const loaded = await Promise.all(jobs);
     return loaded.filter((s): s is Skill => s !== null);
   },
 

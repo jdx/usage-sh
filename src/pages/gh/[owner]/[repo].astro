@@ -211,10 +211,10 @@ const fmtMs = (n: number) => `${n.toFixed(2)}ms`;
                   <p class="m small">{skill.compatibility}</p>
                 )}
                 <a
-                  href={`${data.url}/blob/HEAD/skills/${skill.dir}/SKILL.md`}
+                  href={`${data.url}/blob/HEAD/${skill.path}`}
                   rel="noopener"
                 >
-                  skills/{skill.dir}/SKILL.md
+                  {skill.path}
                 </a>
               </div>
             ))}
