@@ -216,6 +216,29 @@ tbody tr:last-child td {
 .effect.write {
   color: var(--accent);
 }
+/* Skills are third-party prose. They read as quoted material, not as
+   something usage.sh is asserting. */
+.cards {
+  display: grid;
+  gap: 0.75rem;
+}
+.skill-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: 0.35rem;
+}
+.skill-head code {
+  font-weight: 600;
+}
+.skill .desc {
+  margin: 0 0 0.4rem;
+}
+.small {
+  font-size: 0.75rem;
+}
+
 .effect.destructive {
   color: var(--bad);
   font-weight: 600;

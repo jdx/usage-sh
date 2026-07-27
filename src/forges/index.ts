@@ -19,6 +19,7 @@
  * from `/gh/:owner/:repo` — both are three segments.
  */
 
+import type { Skill } from "../skills";
 import type { Spec } from "../spec";
 
 export interface RepoMeta {
@@ -74,6 +75,8 @@ export interface Forge {
   repoMeta(owner: string, repo: string, ctx: ForgeCtx): Promise<RepoMeta | null>;
   /** A `*.usage.kdl` at the repo root, if present. */
   usageSpec(owner: string, repo: string, ctx: ForgeCtx): Promise<SpecFile | null>;
+  /** Agent Skills under `skills/`, following the agentskills layout. */
+  skills(owner: string, repo: string, ctx: ForgeCtx): Promise<Skill[] | null>;
   /** Release history, newest first. */
   releases(owner: string, repo: string, ctx: ForgeCtx): Promise<Release[] | null>;
   /** Contributors, ranked by the forge's own notion of contribution. */

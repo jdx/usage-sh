@@ -195,6 +195,56 @@ const fmtMs = (n: number) => `${n.toFixed(2)}ms`;
   </section>
 
   <section>
+    <h2>Skills</h2>
+    {
+      data.skills?.length ? (
+        <>
+          <div class="cards">
+            {data.skills.map((skill) => (
+              <div class="card skill">
+                <div class="skill-head">
+                  <code>{skill.name}</code>
+                  {skill.license && <span class="m">{skill.license}</span>}
+                </div>
+                <p class="desc">{skill.description}</p>
+                {skill.compatibility && (
+                  <p class="m small">{skill.compatibility}</p>
+                )}
+                <a
+                  href={`${data.url}/blob/HEAD/skills/${skill.dir}/SKILL.md`}
+                  rel="noopener"
+                >
+                  skills/{skill.dir}/SKILL.md
+                </a>
+              </div>
+            ))}
+          </div>
+          <div class="facts">
+            <span>
+              published by <b>{data.slug}</b>, not by usage.sh
+            </span>
+          </div>
+        </>
+      ) : data.skills ? (
+        <div class="warn">
+          This repository has a <code>skills/</code> directory, but nothing in
+          it could be read as an{" "}
+          <a href="https://agentskills.io/specification">Agent Skill</a> — each
+          one needs a <code>SKILL.md</code> with a <code>name</code> and a{" "}
+          <code>description</code> in its frontmatter.
+        </div>
+      ) : (
+        <div class="empty">
+          No <code>skills/</code> in this repository.{" "}
+          <a href="https://agentskills.io/specification">Agent Skills</a> at{" "}
+          <code>skills/&lt;name&gt;/SKILL.md</code> are listed here
+          automatically.
+        </div>
+      )
+    }
+  </section>
+
+  <section>
     <h2>Performance</h2>
     {
       data.performance && perfSeries.length ? (

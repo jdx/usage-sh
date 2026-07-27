@@ -5,6 +5,7 @@
  * that is plain git protocol and works against any host (see `../git.ts`).
  */
 
+import { parseSkill, type Skill } from "../skills";
 import { parseSpec } from "../spec";
 import type {
   Contributor,
@@ -16,6 +17,14 @@ import type {
 } from "./index";
 
 const API = "https://api.github.com";
+const RAW = "https://raw.githubusercontent.com";
+
+/**
+ * Cap on skills read per repo. The cost is one fetch each, paid on a cold hit
+ * for any repo anyone visits, and nothing stops a repo having a hundred
+ * directories under `skills/`.
+ */
+const MAX_SKILLS = 25;
 
 function headers(ctx: ForgeCtx): Record<string, string> {
   const h: Record<string, string> = {
@@ -81,6 +90,51 @@ export const github: Forge = {
     // A spec that will not parse still shows its source, so a syntax error
     // upstream degrades the Commands tab rather than emptying the page.
     return { file: spec.name, raw, spec: parseSpec(raw) };
+  },
+
+  /**
+   * `skills/<name>/SKILL.md`, per https://agentskills.io/specification.
+   *
+   * One listing plus one fetch per skill. Capped, because the cost is paid on
+   * a cold hit for any repo anyone visits and a repo can have any number of
+   * directories under `skills/`.
+   *
+   * `null` means there is no `skills/` directory; an empty array means there
+   * is one but nothing in it could be read. The page says different things
+   * for the two, because "no skills here" is wrong when the directory exists
+   * and the frontmatter is simply broken.
+   */
+  async skills(owner, repo, ctx): Promise<Skill[] | null> {
+    const res = await fetch(`${API}/repos/${owner}/${repo}/contents/skills`, {
+      headers: headers(ctx),
+      cf: { cacheTtl: 600, cacheEverything: true },
+    });
+    // 404 is the normal case: most repos ship no skills.
+    if (!res.ok) return null;
+
+    const entries = (await res.json()) as Array<{ name: string; type: string }>;
+    if (!Array.isArray(entries)) return null;
+
+    const dirs = entries
+      .filter((e) => e.type === "dir")
+      .map((e) => e.name)
+      .sort()
+      .slice(0, MAX_SKILLS);
+
+    const loaded = await Promise.all(
+      dirs.map(async (dir) => {
+        const body = await fetch(
+          `${RAW}/${owner}/${repo}/HEAD/skills/${encodeURIComponent(dir)}/SKILL.md`,
+          { cf: { cacheTtl: 600, cacheEverything: true } },
+        ).catch(() => null);
+        if (!body?.ok) return null;
+        // A skill whose frontmatter cannot be read is skipped rather than
+        // shown half-parsed; it is someone else's file, not ours to guess at.
+        return parseSkill(dir, await body.text());
+      }),
+    );
+
+    return loaded.filter((s): s is Skill => s !== null);
   },
 
   async releases(owner, repo, ctx): Promise<Release[] | null> {
