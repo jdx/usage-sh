@@ -115,25 +115,53 @@ export const github: Forge = {
     const entries = (await res.json()) as Array<{ name: string; type: string }>;
     if (!Array.isArray(entries)) return null;
 
-    const dirs = entries
+    const fetchText = async (path: string): Promise<string | null> => {
+      const r = await fetch(`${RAW}/${owner}/${repo}/HEAD/${path}`, {
+        cf: { cacheTtl: 600, cacheEverything: true },
+      }).catch(() => null);
+      return r?.ok ? await r.text() : null;
+    };
+
+    const jobs: Array<Promise<Skill | null>> = [];
+
+    // The spec layout. `SKILL.md` is the spelling it defines; some repos use
+    // `skill.md`, so fall back rather than miss them — one extra request, and
+    // only for a directory that did not have the documented name.
+    for (const dir of entries
       .filter((e) => e.type === "dir")
       .map((e) => e.name)
       .sort()
-      .slice(0, MAX_SKILLS);
+      .slice(0, MAX_SKILLS)) {
+      jobs.push(
+        (async () => {
+          const base = `skills/${encodeURIComponent(dir)}`;
+          const source =
+            (await fetchText(`${base}/SKILL.md`)) ??
+            (await fetchText(`${base}/skill.md`));
+          return source ? parseSkill(`${base}/SKILL.md`, dir, source) : null;
+        })(),
+      );
+    }
 
-    const loaded = await Promise.all(
-      dirs.map(async (dir) => {
-        const body = await fetch(
-          `${RAW}/${owner}/${repo}/HEAD/skills/${encodeURIComponent(dir)}/SKILL.md`,
-          { cf: { cacheTtl: 600, cacheEverything: true } },
-        ).catch(() => null);
-        if (!body?.ok) return null;
-        // A skill whose frontmatter cannot be read is skipped rather than
-        // shown half-parsed; it is someone else's file, not ours to guess at.
-        return parseSkill(dir, await body.text());
-      }),
+    // A single unnamed skill at `skills/SKILL.md`. Not the spec layout, but by
+    // far the most common shape in the wild, and the two clearest end-user CLI
+    // skills I could find both use it. Taken from the listing, so the casing
+    // is whatever the repo actually used and nothing is guessed.
+    const loose = entries.find(
+      (e) => e.type === "file" && /^skill\.md$/i.test(e.name),
     );
+    if (loose) {
+      jobs.push(
+        (async () => {
+          const path = `skills/${loose.name}`;
+          const source = await fetchText(path);
+          // No directory to name it after, so fall back to the repo.
+          return source ? parseSkill(path, repo, source) : null;
+        })(),
+      );
+    }
 
+    const loaded = await Promise.all(jobs);
     return loaded.filter((s): s is Skill => s !== null);
   },
 
