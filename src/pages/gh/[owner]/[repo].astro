@@ -195,6 +195,48 @@ const fmtMs = (n: number) => `${n.toFixed(2)}ms`;
   </section>
 
   <section>
+    <h2>Skills</h2>
+    {
+      data.skills ? (
+        <>
+          <div class="cards">
+            {data.skills.map((skill) => (
+              <div class="card skill">
+                <div class="skill-head">
+                  <code>{skill.name}</code>
+                  {skill.license && <span class="m">{skill.license}</span>}
+                </div>
+                <p class="desc">{skill.description}</p>
+                {skill.compatibility && (
+                  <p class="m small">{skill.compatibility}</p>
+                )}
+                <a
+                  href={`${data.url}/blob/HEAD/skills/${skill.dir}/SKILL.md`}
+                  rel="noopener"
+                >
+                  skills/{skill.dir}/SKILL.md
+                </a>
+              </div>
+            ))}
+          </div>
+          <div class="facts">
+            <span>
+              published by <b>{data.slug}</b>, not by usage.sh
+            </span>
+          </div>
+        </>
+      ) : (
+        <div class="empty">
+          No <code>skills/</code> in this repository.{" "}
+          <a href="https://agentskills.io/specification">Agent Skills</a> at{" "}
+          <code>skills/&lt;name&gt;/SKILL.md</code> are listed here
+          automatically.
+        </div>
+      )
+    }
+  </section>
+
+  <section>
     <h2>Performance</h2>
     {
       data.performance && perfSeries.length ? (

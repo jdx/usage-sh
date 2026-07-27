@@ -6,6 +6,7 @@
  * Cloudflare runtime.
  */
 
+import type { Skill } from "../skills";
 import { parse as parseToml } from "smol-toml";
 
 import type { Contributor, Forge, ForgeCtx, RepoMeta, SpecFile } from "../forges";
@@ -69,6 +70,8 @@ export interface RepoData {
   /** Name in mise's registry, when it is in there at all. */
   miseToolName: string | null;
   commands: SpecFile | null;
+  /** Agent Skills the repo publishes under `skills/`. */
+  skills: Skill[] | null;
   performance: Performance | null;
   versions: Versions | null;
   contributors: Contributor[] | null;
@@ -316,9 +319,10 @@ export async function repoData(
   const meta = await forge.repoMeta(owner, repo, ctx);
   if (!meta) return null;
 
-  const [commands, perf, toolName, contributors, forgeReleases] =
+  const [commands, skills, perf, toolName, contributors, forgeReleases] =
     await Promise.all([
       forge.usageSpec(owner, repo, ctx).catch(() => null),
+      forge.skills(owner, repo, ctx).catch(() => null),
       performance(forge, owner, repo).catch(() => null),
       miseToolName(forge, owner, repo, cache).catch(() => null),
       forge.contributors(owner, repo, ctx).catch(() => null),
@@ -338,6 +342,7 @@ export async function repoData(
     meta,
     miseToolName: toolName,
     commands,
+    skills,
     performance: perf,
     versions,
     contributors,
