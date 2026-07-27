@@ -78,6 +78,7 @@ function parseFrontmatter(src: string): {
       if (line.includes('"')) value = value.replace(/\\"/g, '"');
     }
 
+    value = value.trim();
     if (value) fields[key] = value;
   }
 

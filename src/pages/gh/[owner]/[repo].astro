@@ -197,7 +197,7 @@ const fmtMs = (n: number) => `${n.toFixed(2)}ms`;
   <section>
     <h2>Skills</h2>
     {
-      data.skills ? (
+      data.skills?.length ? (
         <>
           <div class="cards">
             {data.skills.map((skill) => (
@@ -225,6 +225,14 @@ const fmtMs = (n: number) => `${n.toFixed(2)}ms`;
             </span>
           </div>
         </>
+      ) : data.skills ? (
+        <div class="warn">
+          This repository has a <code>skills/</code> directory, but nothing in
+          it could be read as an{" "}
+          <a href="https://agentskills.io/specification">Agent Skill</a> — each
+          one needs a <code>SKILL.md</code> with a <code>name</code> and a{" "}
+          <code>description</code> in its frontmatter.
+        </div>
       ) : (
         <div class="empty">
           No <code>skills/</code> in this repository.{" "}

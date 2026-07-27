@@ -98,6 +98,11 @@ export const github: Forge = {
    * One listing plus one fetch per skill. Capped, because the cost is paid on
    * a cold hit for any repo anyone visits and a repo can have any number of
    * directories under `skills/`.
+   *
+   * `null` means there is no `skills/` directory; an empty array means there
+   * is one but nothing in it could be read. The page says different things
+   * for the two, because "no skills here" is wrong when the directory exists
+   * and the frontmatter is simply broken.
    */
   async skills(owner, repo, ctx): Promise<Skill[] | null> {
     const res = await fetch(`${API}/repos/${owner}/${repo}/contents/skills`, {
@@ -129,8 +134,7 @@ export const github: Forge = {
       }),
     );
 
-    const skills = loaded.filter((s): s is Skill => s !== null);
-    return skills.length ? skills : null;
+    return loaded.filter((s): s is Skill => s !== null);
   },
 
   async releases(owner, repo, ctx): Promise<Release[] | null> {

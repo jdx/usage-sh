@@ -116,6 +116,12 @@ test("rejects a file with no description", () => {
   assert.equal(parseSkill("x", `---\nname: x\n---\nbody`), null);
 });
 
+test("rejects a whitespace-only description", () => {
+  // The spec requires a non-empty description; quotes made this look present.
+  assert.equal(parseSkill("x", `---\nname: x\ndescription: "   "\n---\nbody`), null);
+  assert.equal(parseSkill("x", `---\nname: x\ndescription: |\n   \n---\nbody`), null);
+});
+
 test("rejects a file with no frontmatter", () => {
   assert.equal(parseSkill("x", "# Just markdown\n"), null);
 });
