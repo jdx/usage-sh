@@ -3,7 +3,7 @@
  * whatever is there. These cover the shapes real generators emit, plus the
  * ones that would silently produce a wrong command tree rather than an error.
  *
- * Run with `npm test`.
+ * Run with `aube test`.
  */
 
 import assert from "node:assert/strict";
