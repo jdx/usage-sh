@@ -35,6 +35,19 @@ jobs:
       - run: aube exec astro check
       - run: aube run build
 
+  hk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Installs hk, pkl and jactionlint at the versions pinned in mise.lock.
+      - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+
+      - run: mise x hk -- hk check --all
+
   # Single fan-in gate, so branch protection requires one check instead of an
   # enumerated list that goes stale every time a job is added or renamed. It
   # also catches *skipped* jobs, which a required check would otherwise treat
@@ -43,6 +56,7 @@ jobs:
     permissions: {}
     needs:
       - check
+      - hk
     runs-on: ubuntu-latest
     timeout-minutes: 1
     # Run on success or upstream failure but skip when the workflow is cancelled
@@ -50,6 +64,6 @@ jobs:
     if: ${{ !cancelled() }}
     steps:
       - name: Check job results
-        if: needs.check.result != 'success'
+        if: needs.check.result != 'success' || needs.hk.result != 'success'
         run: exit 1
       - run: echo "All CI jobs completed successfully"
