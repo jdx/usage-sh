@@ -2,6 +2,6 @@
 aube = { version = "latest", minimum_release_age = "0s" }
 # hk.pkl amends a pinned hk package; the tool itself floats and is resolved by mise.lock.
 hk = { version = "latest", minimum_release_age = "0s" }
-jactionlint = "latest"
+jactionlint = { version = "2", minimum_release_age = "0s" }
 node = "24"
 pkl = "latest"
