@@ -48,6 +48,19 @@ jobs:
 
       - run: mise x hk -- hk check --all
 
+  zizmor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        with:
+          advanced-security: false
+
   # Single fan-in gate, so branch protection requires one check instead of an
   # enumerated list that goes stale every time a job is added or renamed. It
   # also catches *skipped* jobs, which a required check would otherwise treat
@@ -57,6 +70,7 @@ jobs:
     needs:
       - check
       - hk
+      - zizmor
     runs-on: ubuntu-latest
     timeout-minutes: 1
     # Run on success or upstream failure but skip when the workflow is cancelled
@@ -64,6 +78,6 @@ jobs:
     if: ${{ !cancelled() }}
     steps:
       - name: Check job results
-        if: needs.check.result != 'success' || needs.hk.result != 'success'
+        if: needs.check.result != 'success' || needs.hk.result != 'success' || needs.zizmor.result != 'success'
         run: exit 1
       - run: echo "All CI jobs completed successfully"
