@@ -1,4 +1,0 @@
-# zizmor ran its online audits (impostor commits, known-vulnerable actions,
-# archived repositories, stale refs); keep them on. A failed lookup is skipped
-# with a warning and does not fail the run. CI passes github.token.
-online: true

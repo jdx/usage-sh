@@ -2,7 +2,6 @@
 aube = { version = "latest", minimum_release_age = "0s" }
 # hk.pkl amends a pinned hk package; the tool itself floats and is resolved by mise.lock.
 hk = { version = "latest", minimum_release_age = "0s" }
-# Exact pin: jactionlint 2.0.2 is newer than the default 24h release-age holdback until 2026-10-10 20:00Z. Loosen to the previous selector after that.
-jactionlint = "2.0.2"
+jactionlint = "2.1.0"
 node = "24"
 pkl = "latest"
