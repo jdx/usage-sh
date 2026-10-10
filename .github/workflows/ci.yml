@@ -46,7 +46,11 @@ jobs:
       # Installs hk, pkl and jactionlint at the versions pinned in mise.lock.
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
 
+      # GITHUB_TOKEN gives jactionlint's online checks (see
+      # .github/jactionlint.yaml) an authenticated GitHub API rate limit.
       - run: mise x hk -- hk check --all
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
   # Single fan-in gate, so branch protection requires one check instead of an
   # enumerated list that goes stale every time a job is added or renamed. It
