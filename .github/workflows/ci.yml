@@ -46,20 +46,12 @@ jobs:
       # Installs hk, pkl and jactionlint at the versions pinned in mise.lock.
       - uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
 
+      # jactionlint's online checks (known-vulnerable actions, impostor commits,
+      # stale refs) run in CI only; locally `hk check` stays offline.
       - run: mise x hk -- hk check --all
-
-  zizmor:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
-        with:
-          advanced-security: false
+        env:
+          JACTIONLINT_ONLINE: 1
+          GITHUB_TOKEN: ${{ github.token }}
 
   # Single fan-in gate, so branch protection requires one check instead of an
   # enumerated list that goes stale every time a job is added or renamed. It
@@ -70,7 +62,6 @@ jobs:
     needs:
       - check
       - hk
-      - zizmor
     runs-on: ubuntu-latest
     timeout-minutes: 1
     # Run on success or upstream failure but skip when the workflow is cancelled
@@ -78,6 +69,6 @@ jobs:
     if: ${{ !cancelled() }}
     steps:
       - name: Check job results
-        if: needs.check.result != 'success' || needs.hk.result != 'success' || needs.zizmor.result != 'success'
+        if: needs.check.result != 'success' || needs.hk.result != 'success'
         run: exit 1
       - run: echo "All CI jobs completed successfully"
